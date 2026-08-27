@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rotina</title>
+<style>
+  :root{
+    --bg: #F5F2EA;
+    --paper: #FBF9F3;
+    --ink: #2B2620;
+    --ink-soft: #6B6255;
+    --rule: #DCD5C4;
+    --margin: #B4483C;
+
+    --daily: #1D9E75;
+    --daily-ink: #04342C;
+    --daily-bg: #E1F5EE;
+
+    --weekly: #BA7517;
+    --weekly-ink: #412402;
+    --weekly-bg: #FAEEDA;
+
+    --monthly: #534AB7;
+    --monthly-ink: #26215C;
+    --monthly-bg: #EEEDFE;
+
+    --once: #5F5E5A;
+    --once-ink: #2C2C2A;
+    --once-bg: #F1EFE8;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family: Georgia, 'Times New Roman', serif;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 32px 16px 80px;
+  }
+  .page{
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 14px;
+    margin-bottom: 22px;
+  }
+  h1{
+    font-size: 30px;
+    font-weight: 400;
+    margin: 0;
+    letter-spacing: 0.3px;
+  }
+  .today{
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align:right;
+  }
+
+  /* ---- Tela de login ---- */
+  .login-wrap{
+    max-width: 360px;
+    margin: 60px auto;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--ink);
+    padding: 28px 24px;
+  }
+  .login-wrap h1{
+    margin-bottom: 4px;
+  }
+  .login-sub{
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-bottom: 20px;
+  }
+  .login-wrap input{
+    width: 100%;
+    font-family: Georgia, serif;
+    font-size: 15px;
+    padding: 10px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink);
+    border-radius: 3px;
+    margin-bottom: 10px;
+  }
+  .login-btns{
+    display:flex;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .login-btns button{
+    flex:1;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 10px;
+    border: 1px solid var(--ink);
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  #btnEntrar{ background: var(--ink); color: var(--paper); }
+  #btnEntrar:hover{ background: #423B32; }
+  #btnCriarConta{ background: #fff; color: var(--ink); }
+  #btnCriarConta:hover{ background: var(--bg); }
+  .login-error{
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--margin);
+    margin-top: 10px;
+    min-height: 16px;
+  }
+  .account-bar{
+    display:flex;
+    align-items:center;
+    justify-content: space-between;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-bottom: 14px;
+  }
+  .account-bar button{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: none;
+    border: 1px solid var(--rule);
+    padding: 4px 10px;
+    cursor: pointer;
+    border-radius: 3px;
+    color: var(--ink-soft);
+  }
+  .account-bar button:hover{ color: var(--margin); border-color: var(--margin); }
+  .sync-status{
+    font-style: italic;
+  }
+
+  .add-box{
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--ink);
+    padding: 14px 16px;
+    margin-bottom: 28px;
+  }
+  .add-row{
+    display:flex;
+    gap:8px;
+    flex-wrap: wrap;
+  }
+  .add-row input[type=text]{
+    flex: 1 1 220px;
+    font-family: Georgia, serif;
+    font-size: 15px;
+    padding: 8px 10px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink);
+    border-radius: 3px;
+  }
+  .add-row input[type=text]:focus{
+    outline: none;
+    border-color: var(--ink);
+  }
+  .freq-picker{
+    display:flex;
+    gap: 6px;
+  }
+  .freq-btn{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 8px 10px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink-soft);
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .freq-btn.active[data-freq="daily"]{ background: var(--daily-bg); border-color: var(--daily); color: var(--daily-ink); }
+  .freq-btn.active[data-freq="weekly"]{ background: var(--weekly-bg); border-color: var(--weekly); color: var(--weekly-ink); }
+  .freq-btn.active[data-freq="monthly"]{ background: var(--monthly-bg); border-color: var(--monthly); color: var(--monthly-ink); }
+  .freq-btn.active[data-freq="once"]{ background: var(--once-bg); border-color: var(--once); color: var(--once-ink); }
+
+  .add-submit{
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 8px 16px;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .add-submit:hover{ background: #423B32; }
+
+  .add-row input#newTaskCategory{
+    flex: 0 1 160px;
+  }
+
+  .cat-bar{
+    display:flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 22px;
+  }
+  .cat-chip{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 6px 12px;
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    color: var(--ink-soft);
+    cursor: pointer;
+    border-radius: 20px;
+  }
+  .cat-chip.active{
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper);
+  }
+
+  .task-cat{
+    flex: none;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--ink-soft);
+    border: 1px solid var(--rule);
+    padding: 2px 6px;
+    border-radius: 10px;
+  }
+  .task-regime{
+    flex: none;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--margin);
+    border: 1px solid var(--margin);
+    padding: 2px 6px;
+    border-radius: 10px;
+  }
+
+  .mode-bar{
+    display:flex;
+    align-items:center;
+    gap: 10px;
+    margin-bottom: 22px;
+    padding: 10px 14px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+  }
+  .mode-label{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--ink-soft);
+  }
+  .mode-btn{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 6px 12px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink-soft);
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .mode-btn.active{
+    background: var(--margin);
+    border-color: var(--margin);
+    color: #fff;
+  }
+
+  #newTaskRegime{
+    flex: 0 1 150px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink);
+    border-radius: 3px;
+  }
+
+  section.group{
+    margin-bottom: 26px;
+  }
+  .group-head{
+    display:flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .tab{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 3px 8px;
+    border-radius: 3px;
+  }
+  .tab.daily{ background: var(--daily-bg); color: var(--daily-ink); }
+  .tab.weekly{ background: var(--weekly-bg); color: var(--weekly-ink); }
+  .tab.monthly{ background: var(--monthly-bg); color: var(--monthly-ink); }
+  .tab.once{ background: var(--once-bg); color: var(--once-ink); }
+
+  .period-label{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .progress{
+    margin-left: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+
+  ul.tasks{
+    list-style:none;
+    margin:0;
+    padding:0;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+  }
+  ul.tasks li{
+    display:flex;
+    align-items:center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-bottom: 1px dashed var(--rule);
+  }
+  ul.tasks li:last-child{ border-bottom:none; }
+  ul.tasks li.empty{
+    color: var(--ink-soft);
+    font-style: italic;
+    font-size: 14px;
+  }
+
+  .check{
+    width: 20px;
+    height: 20px;
+    flex: none;
+    border: 1.5px solid var(--ink-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background: #fff;
+  }
+  .check.done{
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper);
+    font-size: 13px;
+  }
+  .task-text{
+    flex:1;
+    font-size: 15.5px;
+  }
+  .task-text.done{
+    color: var(--ink-soft);
+    text-decoration: line-through;
+  }
+  .del{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+  }
+  .del:hover{ color: var(--margin); }
+
+  .loading, .save-msg{
+    text-align:center;
+    color: var(--ink-soft);
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 20px;
+  }
+
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+
+<!-- ===== TELA DE LOGIN ===== -->
+<div class="login-wrap" id="loginScreen">
+  <h1>Rotina</h1>
+  <div class="login-sub">entre com o mesmo e-mail e senha em todos os seus dispositivos</div>
+  <input type="email" id="loginEmail" placeholder="seu e-mail" autocomplete="email">
+  <input type="password" id="loginSenha" placeholder="sua senha (mínimo 6 caracteres)" autocomplete="current-password">
+  <div class="login-btns">
+    <button id="btnEntrar">Entrar</button>
+    <button id="btnCriarConta">Criar conta</button>
+  </div>
+  <div class="login-error" id="loginError"></div>
+</div>
+
+<!-- ===== APP PRINCIPAL ===== -->
+<div class="page hidden" id="appScreen">
+  <header>
+    <h1>Rotina</h1>
+    <div class="today" id="todayLabel"></div>
+  </header>
+
+  <div class="account-bar">
+    <span id="accountEmail"></span>
+    <span class="sync-status" id="syncStatus"></span>
+    <button id="btnSair">Sair</button>
+  </div>
+
+  <div class="mode-bar" id="modeBar">
+    <span class="mode-label">Modo atual:</span>
+    <button class="mode-btn" data-mode="meio">Meio período</button>
+    <button class="mode-btn" data-mode="integral">Integral</button>
+    <button class="mode-btn" data-mode="ambos">Ambos</button>
+  </div>
+
+  <div class="add-box">
+    <div class="add-row">
+      <input type="text" id="newTaskText" placeholder="Nova tarefa..." maxlength="120">
+      <input type="text" id="newTaskCategory" placeholder="Categoria (ex: Faculdade)" maxlength="40" list="categoryOptions">
+      <datalist id="categoryOptions"></datalist>
+      <select id="newTaskRegime">
+        <option value="">Regime: nenhum</option>
+        <option value="meio">Regime: meio período</option>
+        <option value="integral">Regime: integral</option>
+      </select>
+      <div class="freq-picker" id="freqPicker">
+        <button class="freq-btn active" data-freq="daily">Diária</button>
+        <button class="freq-btn" data-freq="weekly">Semanal</button>
+        <button class="freq-btn" data-freq="monthly">Mensal</button>
+        <button class="freq-btn" data-freq="once">Única</button>
+      </div>
+      <button class="add-submit" id="addBtn">Adicionar</button>
+    </div>
+  </div>
+
+  <div class="cat-bar" id="catBar"></div>
+  <div id="groups"></div>
+  <div class="loading" id="loadingMsg">carregando...</div>
+</div>
+
+<script type="module">
+// ============================================================
+// FIREBASE: importado direto por link (CDN), sem precisar de
+// npm/Node.js. Isso é possível porque o SDK v9+ do Firebase é
+// distribuído também como "ES module" hospedado no gstatic.com.
+// ============================================================
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js';
+import {
+  getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signOut, onAuthStateChanged
+} from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
+import {
+  getFirestore, doc, setDoc, onSnapshot
+} from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
+
+// Sua configuração do projeto Firebase (identifica o projeto, não é secreta)
+const firebaseConfig = {
+  apiKey: "AIzaSyADpeCEevj15AGz-xuhlZvY1xgvuLZyGuU",
+  authDomain: "rotina-e87f2.firebaseapp.com",
+  projectId: "rotina-e87f2",
+  storageBucket: "rotina-e87f2.firebasestorage.app",
+  messagingSenderId: "867915295946",
+  appId: "1:867915295946:web:e1433e946157e4c3d69833"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+let currentUser = null;
+let unsubscribeSnapshot = null; // pra parar de "escutar" o Firestore quando fizer logout
+
+// ---------- Estado do app (igual antes) ----------
+let tasks = [];
+let selectedFreq = 'daily';
+let selectedCategory = 'all';
+let currentMode = 'ambos';
+let isApplyingRemoteData = false; // evita salvar de volta enquanto só estamos recebendo dados
+
+function renderModeBar(){
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === currentMode);
+  });
+}
+
+function distinctCategories(){
+  const set = new Set(tasks.map(t => t.category || 'Geral'));
+  return Array.from(set).sort((a,b) => a.localeCompare(b, 'pt-BR'));
+}
+
+function renderCatBar(){
+  const bar = document.getElementById('catBar');
+  const cats = distinctCategories();
+  bar.innerHTML = '';
+
+  const allChip = document.createElement('button');
+  allChip.className = 'cat-chip' + (selectedCategory === 'all' ? ' active' : '');
+  allChip.textContent = 'Todas';
+  allChip.onclick = () => { selectedCategory = 'all'; render(); };
+  bar.appendChild(allChip);
+
+  cats.forEach(cat => {
+    const chip = document.createElement('button');
+    chip.className = 'cat-chip' + (selectedCategory === cat ? ' active' : '');
+    chip.textContent = cat;
+    chip.onclick = () => { selectedCategory = cat; render(); };
+    bar.appendChild(chip);
+  });
+
+  const datalist = document.getElementById('categoryOptions');
+  datalist.innerHTML = cats.map(c => '<option value="' + c.replace(/"/g,'') + '">').join('');
+}
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function dailyKey(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+
+function weeklyKey(d){
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(),0,4));
+  const fDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - fDayNum + 3);
+  const week = 1 + Math.round((date - firstThursday) / (7*86400000));
+  return date.getUTCFullYear()+'-W'+pad(week);
+}
+
+function monthlyKey(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1); }
+
+function currentKey(freq){
+  const d = new Date();
+  if(freq === 'daily') return dailyKey(d);
+  if(freq === 'weekly') return weeklyKey(d);
+  if(freq === 'monthly') return monthlyKey(d);
+  return dailyKey(d);
+}
+
+function isDone(task){
+  return task.doneKey === currentKey(task.freq);
+}
+
+function cleanupOnceTasks(){
+  const today = dailyKey(new Date());
+  const before = tasks.length;
+  tasks = tasks.filter(t => !(t.freq === 'once' && t.doneKey && t.doneKey !== today));
+  return tasks.length !== before;
+}
+
+const MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const WEEKDAYS = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+
+function renderTodayLabel(){
+  const d = new Date();
+  document.getElementById('todayLabel').textContent =
+    WEEKDAYS[d.getDay()] + ', ' + d.getDate() + ' de ' + MONTHS[d.getMonth()] + ' de ' + d.getFullYear();
+}
+
+function periodLabelFor(freq){
+  const d = new Date();
+  if(freq === 'daily') return 'hoje · ' + d.getDate() + ' ' + MONTHS[d.getMonth()].slice(0,3);
+  if(freq === 'weekly') return 'esta semana';
+  if(freq === 'monthly') return MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+  return 'sem prazo';
+}
+
+const GROUPS = [
+  {freq:'daily', label:'Diárias'},
+  {freq:'weekly', label:'Semanais'},
+  {freq:'monthly', label:'Mensais'},
+  {freq:'once', label:'Únicas'}
+];
+
+function render(){
+  renderCatBar();
+  renderModeBar();
+  const container = document.getElementById('groups');
+  container.innerHTML = '';
+  const visibleTasks = tasks
+    .filter(t => selectedCategory === 'all' || (t.category || 'Geral') === selectedCategory)
+    .filter(t => currentMode === 'ambos' || !t.regime || t.regime === currentMode);
+
+  GROUPS.forEach(g => {
+    const groupTasks = visibleTasks.filter(t => t.freq === g.freq);
+    const doneCount = groupTasks.filter(isDone).length;
+
+    const section = document.createElement('section');
+    section.className = 'group';
+
+    const head = document.createElement('div');
+    head.className = 'group-head';
+    head.innerHTML =
+      '<span class="tab ' + g.freq + '">' + g.label + '</span>' +
+      '<span class="period-label">' + periodLabelFor(g.freq) + '</span>' +
+      '<span class="progress">' + doneCount + '/' + groupTasks.length + '</span>';
+    section.appendChild(head);
+
+    const ul = document.createElement('ul');
+    ul.className = 'tasks';
+
+    if(groupTasks.length === 0){
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'nenhuma tarefa aqui ainda';
+      ul.appendChild(li);
+    } else {
+      groupTasks.forEach(task => {
+        const done = isDone(task);
+        const li = document.createElement('li');
+
+        const check = document.createElement('div');
+        check.className = 'check' + (done ? ' done' : '');
+        check.textContent = done ? '✓' : '';
+        check.onclick = () => toggleTask(task.id);
+
+        const text = document.createElement('span');
+        text.className = 'task-text' + (done ? ' done' : '');
+        text.textContent = task.text;
+
+        li.appendChild(check);
+        li.appendChild(text);
+
+        if(selectedCategory === 'all'){
+          const catTag = document.createElement('span');
+          catTag.className = 'task-cat';
+          catTag.textContent = task.category || 'Geral';
+          li.appendChild(catTag);
+        }
+
+        if(task.regime){
+          const regimeTag = document.createElement('span');
+          regimeTag.className = 'task-regime';
+          regimeTag.textContent = task.regime === 'integral' ? 'Integral' : 'Meio período';
+          li.appendChild(regimeTag);
+        }
+
+        const del = document.createElement('button');
+        del.className = 'del';
+        del.textContent = 'remover';
+        del.onclick = () => deleteTask(task.id);
+        li.appendChild(del);
+        ul.appendChild(li);
+      });
+    }
+
+    section.appendChild(ul);
+    container.appendChild(section);
+  });
+}
+
+// ---------- Persistência via Firestore ----------
+// Cada usuário tem UM documento em "usuarios/<uid>" contendo
+// suas tarefas e o modo atual. Sempre que salvamos, o Firestore
+// avisa TODOS os dispositivos abertos com esse mesmo login
+// (onSnapshot), então a atualização é automática.
+
+function docRefAtual(){
+  return doc(db, 'usuarios', currentUser.uid);
+}
+
+async function salvarNoFirestore(){
+  if(!currentUser || isApplyingRemoteData) return;
+  try{
+    document.getElementById('syncStatus').textContent = 'salvando...';
+    await setDoc(docRefAtual(), { tasks, mode: currentMode }, { merge: true });
+    document.getElementById('syncStatus').textContent = 'sincronizado';
+  }catch(e){
+    console.error('Falha ao salvar no Firestore', e);
+    document.getElementById('syncStatus').textContent = 'erro ao salvar';
+  }
+}
+
+function comecarAEscutarDados(){
+  unsubscribeSnapshot = onSnapshot(docRefAtual(), (snap) => {
+    isApplyingRemoteData = true;
+    const data = snap.data();
+    if(data){
+      tasks = data.tasks || [];
+      currentMode = data.mode || 'ambos';
+    } else {
+      tasks = [];
+      currentMode = 'ambos';
+    }
+    document.getElementById('loadingMsg').style.display = 'none';
+    document.getElementById('syncStatus').textContent = 'sincronizado';
+    const changed = cleanupOnceTasks();
+    render();
+    isApplyingRemoteData = false;
+    if(changed) salvarNoFirestore();
+  }, (err) => {
+    console.error('Erro ao escutar Firestore', err);
+    document.getElementById('syncStatus').textContent = 'sem conexão';
+  });
+}
+
+function pararDeEscutar(){
+  if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+}
+
+function toggleTask(id){
+  const task = tasks.find(t => t.id === id);
+  if(!task) return;
+  const done = isDone(task);
+  task.doneKey = done ? null : currentKey(task.freq);
+  render();
+  salvarNoFirestore();
+}
+
+function deleteTask(id){
+  tasks = tasks.filter(t => t.id !== id);
+  render();
+  salvarNoFirestore();
+}
+
+function addTask(){
+  const input = document.getElementById('newTaskText');
+  const catInput = document.getElementById('newTaskCategory');
+  const regimeInput = document.getElementById('newTaskRegime');
+  const text = input.value.trim();
+  if(!text) return;
+  const category = catInput.value.trim() || 'Geral';
+  const regime = regimeInput.value || null;
+  tasks.push({
+    id: 't' + Date.now() + Math.random().toString(36).slice(2,7),
+    text: text,
+    category: category,
+    regime: regime,
+    freq: selectedFreq,
+    doneKey: null
+  });
+  input.value = '';
+  catInput.value = '';
+  regimeInput.value = '';
+  render();
+  salvarNoFirestore();
+}
+
+document.getElementById('addBtn').onclick = addTask;
+document.getElementById('newTaskText').addEventListener('keydown', e => {
+  if(e.key === 'Enter') addTask();
+});
+document.getElementById('freqPicker').addEventListener('click', e => {
+  const btn = e.target.closest('.freq-btn');
+  if(!btn) return;
+  selectedFreq = btn.dataset.freq;
+  document.querySelectorAll('.freq-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+});
+document.getElementById('modeBar').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if(!btn) return;
+  currentMode = btn.dataset.mode;
+  render();
+  salvarNoFirestore();
+});
+
+setInterval(() => {
+  renderTodayLabel();
+  const changed = cleanupOnceTasks();
+  render();
+  if(changed) salvarNoFirestore();
+}, 5 * 60 * 1000);
+
+// ---------- Login / Autenticação ----------
+const loginScreen = document.getElementById('loginScreen');
+const appScreen = document.getElementById('appScreen');
+const loginError = document.getElementById('loginError');
+
+function mostrarErro(e){
+  const codigo = e.code || '';
+  const mapa = {
+    'auth/invalid-email': 'E-mail inválido.',
+    'auth/missing-password': 'Digite uma senha.',
+    'auth/weak-password': 'A senha precisa ter pelo menos 6 caracteres.',
+    'auth/email-already-in-use': 'Já existe uma conta com esse e-mail. Tente entrar em vez de criar conta.',
+    'auth/invalid-credential': 'E-mail ou senha incorretos.',
+    'auth/too-many-requests': 'Muitas tentativas. Aguarde um pouco e tente de novo.'
+  };
+  loginError.textContent = mapa[codigo] || ('Erro: ' + (e.message || 'algo deu errado'));
+}
+
+document.getElementById('btnEntrar').onclick = async () => {
+  loginError.textContent = '';
+  const email = document.getElementById('loginEmail').value.trim();
+  const senha = document.getElementById('loginSenha').value;
+  try{
+    await signInWithEmailAndPassword(auth, email, senha);
+  }catch(e){ mostrarErro(e); }
+};
+
+document.getElementById('btnCriarConta').onclick = async () => {
+  loginError.textContent = '';
+  const email = document.getElementById('loginEmail').value.trim();
+  const senha = document.getElementById('loginSenha').value;
+  try{
+    await createUserWithEmailAndPassword(auth, email, senha);
+  }catch(e){ mostrarErro(e); }
+};
+
+document.getElementById('btnSair').onclick = async () => {
+  pararDeEscutar();
+  await signOut(auth);
+};
+
+onAuthStateChanged(auth, (user) => {
+  currentUser = user;
+  if(user){
+    loginScreen.classList.add('hidden');
+    appScreen.classList.remove('hidden');
+    document.getElementById('accountEmail').textContent = user.email;
+    renderTodayLabel();
+    comecarAEscutarDados();
+  } else {
+    appScreen.classList.add('hidden');
+    loginScreen.classList.remove('hidden');
+    pararDeEscutar();
+    tasks = [];
+  }
+});
+</script>
+</body>
+</html>
