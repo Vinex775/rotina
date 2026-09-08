@@ -350,12 +350,14 @@
     gap: 12px;
     padding: 10px 14px;
     border-bottom: 1px dashed var(--rule);
+    cursor: pointer;
   }
   ul.tasks li:last-child{ border-bottom:none; }
   ul.tasks li.empty{
     color: var(--ink-soft);
     font-style: italic;
     font-size: 14px;
+    cursor: default;
   }
 
   .check{
@@ -394,6 +396,39 @@
     padding: 4px 6px;
   }
   .del:hover{ color: var(--margin); }
+
+  .move-btns{
+    display:flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: none;
+    opacity: 0;
+    pointer-events: none;
+    width: 0;
+    overflow: hidden;
+    transition: opacity 0.15s;
+  }
+  ul.tasks li.expanded .move-btns{
+    opacity: 1;
+    pointer-events: auto;
+    width: 18px;
+    overflow: visible;
+  }
+  .move-btn{
+    width: 18px;
+    height: 14px;
+    line-height: 14px;
+    font-size: 9px;
+    padding: 0;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink-soft);
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .move-btn:hover{ background: var(--bg); color: var(--ink); }
+  .move-btn:disabled{ opacity: 0.25; cursor: default; }
+  .move-btn:disabled:hover{ background: #fff; color: var(--ink-soft); }
 
   .loading, .save-msg{
     text-align:center;
@@ -501,6 +536,7 @@ let unsubscribeSnapshot = null; // pra parar de "escutar" o Firestore quando fiz
 // ---------- Estado do app (igual antes) ----------
 let tasks = [];
 let selectedFreq = 'daily';
+let expandedTaskId = null;
 let selectedCategory = 'all';
 let currentMode = 'ambos';
 let isApplyingRemoteData = false; // evita salvar de volta enquanto só estamos recebendo dados
@@ -631,14 +667,35 @@ function render(){
       li.textContent = 'nenhuma tarefa aqui ainda';
       ul.appendChild(li);
     } else {
-      groupTasks.forEach(task => {
+      groupTasks.forEach((task, idx) => {
         const done = isDone(task);
         const li = document.createElement('li');
+        li.className = expandedTaskId === task.id ? 'expanded' : '';
+        li.onclick = () => {
+          expandedTaskId = (expandedTaskId === task.id) ? null : task.id;
+          render();
+        };
+
+        const moveBtns = document.createElement('div');
+        moveBtns.className = 'move-btns';
+        const upBtn = document.createElement('button');
+        upBtn.className = 'move-btn';
+        upBtn.textContent = '▲';
+        upBtn.disabled = idx === 0;
+        upBtn.onclick = (e) => { e.stopPropagation(); moveTask(task.id, -1); };
+        const downBtn = document.createElement('button');
+        downBtn.className = 'move-btn';
+        downBtn.textContent = '▼';
+        downBtn.disabled = idx === groupTasks.length - 1;
+        downBtn.onclick = (e) => { e.stopPropagation(); moveTask(task.id, 1); };
+        moveBtns.appendChild(upBtn);
+        moveBtns.appendChild(downBtn);
+        li.appendChild(moveBtns);
 
         const check = document.createElement('div');
         check.className = 'check' + (done ? ' done' : '');
         check.textContent = done ? '✓' : '';
-        check.onclick = () => toggleTask(task.id);
+        check.onclick = (e) => { e.stopPropagation(); toggleTask(task.id); };
 
         const text = document.createElement('span');
         text.className = 'task-text' + (done ? ' done' : '');
@@ -664,7 +721,7 @@ function render(){
         const del = document.createElement('button');
         del.className = 'del';
         del.textContent = 'remover';
-        del.onclick = () => deleteTask(task.id);
+        del.onclick = (e) => { e.stopPropagation(); deleteTask(task.id); };
         li.appendChild(del);
         ul.appendChild(li);
       });
@@ -735,6 +792,31 @@ function toggleTask(id){
 
 function deleteTask(id){
   tasks = tasks.filter(t => t.id !== id);
+  render();
+  salvarNoFirestore();
+}
+
+// Troca a tarefa de posição dentro da lista que está visível na tela
+// (respeitando os filtros de categoria/regime ativos no momento).
+function moveTask(id, dir){
+  const task = tasks.find(t => t.id === id);
+  if(!task) return;
+
+  const visivelNoGrupo = tasks.filter(t =>
+    t.freq === task.freq &&
+    (selectedCategory === 'all' || (t.category || 'Geral') === selectedCategory) &&
+    (currentMode === 'ambos' || !t.regime || t.regime === currentMode)
+  );
+
+  const pos = visivelNoGrupo.findIndex(t => t.id === id);
+  const novaPos = pos + dir;
+  if(novaPos < 0 || novaPos >= visivelNoGrupo.length) return;
+
+  const outraTarefa = visivelNoGrupo[novaPos];
+  const i1 = tasks.findIndex(t => t.id === task.id);
+  const i2 = tasks.findIndex(t => t.id === outraTarefa.id);
+  [tasks[i1], tasks[i2]] = [tasks[i2], tasks[i1]];
+
   render();
   salvarNoFirestore();
 }
