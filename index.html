@@ -513,7 +513,8 @@ import {
   signOut, onAuthStateChanged
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
-  getFirestore, doc, setDoc, onSnapshot
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  doc, setDoc, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 // Sua configuração do projeto Firebase (identifica o projeto, não é secreta)
@@ -528,7 +529,16 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app);
+// Antes: const db = getFirestore(app);
+// Agora: guardamos um cache persistente em disco (IndexedDB), não só na
+// memória RAM. Isso faz o app enfileirar suas alterações de um jeito que
+// sobrevive a fechar a aba, perder internet, ou o PC dormir no meio do
+// caminho — quando a conexão voltar, ele reenvia sozinho o que faltou.
+// persistentMultipleTabManager() é o que permite abrir o Rotina em mais
+// de uma aba ao mesmo tempo sem elas brigarem por causa desse cache.
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+});
 
 let currentUser = null;
 let unsubscribeSnapshot = null; // pra parar de "escutar" o Firestore quando fizer logout
@@ -754,8 +764,12 @@ async function salvarNoFirestore(){
   }
 }
 
+let pendingWrites = false;
+
 function comecarAEscutarDados(){
-  unsubscribeSnapshot = onSnapshot(docRefAtual(), (snap) => {
+  unsubscribeSnapshot = onSnapshot(docRefAtual(), { includeMetadataChanges: true }, (snap) => {
+    pendingWrites = snap.metadata.hasPendingWrites;
+
     isApplyingRemoteData = true;
     const data = snap.data();
     if(data){
@@ -766,7 +780,7 @@ function comecarAEscutarDados(){
       currentMode = 'ambos';
     }
     document.getElementById('loadingMsg').style.display = 'none';
-    document.getElementById('syncStatus').textContent = 'sincronizado';
+    document.getElementById('syncStatus').textContent = pendingWrites ? 'salvando...' : 'sincronizado';
     const changed = cleanupOnceTasks();
     render();
     isApplyingRemoteData = false;
@@ -776,6 +790,15 @@ function comecarAEscutarDados(){
     document.getElementById('syncStatus').textContent = 'sem conexão';
   });
 }
+
+// Se você tentar fechar/recarregar a aba enquanto ainda existe alteração
+// não confirmada pelo servidor, o navegador mostra um aviso de confirmação.
+window.addEventListener('beforeunload', (e) => {
+  if(pendingWrites){
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
 
 function pararDeEscutar(){
   if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
