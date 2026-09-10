@@ -430,6 +430,94 @@
   .move-btn:disabled{ opacity: 0.25; cursor: default; }
   .move-btn:disabled:hover{ background: #fff; color: var(--ink-soft); }
 
+  .pipeline-badge{
+    width: auto;
+    min-width: 20px;
+    padding: 0 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+  }
+
+  li.subtask-panel{
+    display: block;
+    cursor: default;
+    background: var(--bg);
+    padding: 12px 14px 14px 44px;
+    border-bottom: 1px dashed var(--rule);
+  }
+
+  .seq-toggle{
+    display:flex;
+    align-items:center;
+    gap: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+    cursor: pointer;
+  }
+
+  .subtask-row{
+    display:flex;
+    align-items:center;
+    gap: 10px;
+    padding: 6px 0;
+  }
+  .subtask-row.locked{
+    opacity: 0.4;
+  }
+  .sub-check{
+    width: 16px;
+    height: 16px;
+    flex: none;
+    border: 1.5px solid var(--ink-soft);
+    border-radius: 3px;
+    cursor: pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background: #fff;
+    font-size: 10px;
+  }
+  .subtask-row.locked .sub-check{ cursor: default; }
+  .sub-check.done{
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper);
+  }
+  .sub-text{
+    flex:1;
+    font-size: 14px;
+  }
+  .sub-text.done{
+    color: var(--ink-soft);
+    text-decoration: line-through;
+  }
+
+  .add-subtask-row{
+    display:flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .add-subtask-row input{
+    flex:1;
+    font-family: Georgia, serif;
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    border-radius: 3px;
+  }
+  .add-subtask-row button{
+    font-family: 'Courier New', monospace;
+    padding: 6px 12px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
   .loading, .save-msg{
     text-align:center;
     color: var(--ink-soft);
@@ -610,6 +698,9 @@ function currentKey(freq){
 }
 
 function isDone(task){
+  if(task.subtasks && task.subtasks.length > 0){
+    return task.subtasks.every(s => s.done);
+  }
   return task.doneKey === currentKey(task.freq);
 }
 
@@ -618,6 +709,25 @@ function cleanupOnceTasks(){
   const before = tasks.length;
   tasks = tasks.filter(t => !(t.freq === 'once' && t.doneKey && t.doneKey !== today));
   return tasks.length !== before;
+}
+
+// Tarefas recorrentes com mini-passos: quando o período muda (ex: virou
+// a semana), os passos precisam reiniciar do zero, senão o progresso da
+// semana passada ficaria "colado" pra sempre.
+function resetExpiredPipelines(){
+  let changed = false;
+  tasks.forEach(task => {
+    if(task.subtasks && task.subtasks.length > 0 && task.freq !== 'once'){
+      const key = currentKey(task.freq);
+      if(task.cycleKey && task.cycleKey !== key){
+        task.subtasks.forEach(s => { s.done = false; });
+        task.doneKey = null;
+        task.cycleKey = key;
+        changed = true;
+      }
+    }
+  });
+  return changed;
 }
 
 const MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
@@ -702,10 +812,18 @@ function render(){
         moveBtns.appendChild(downBtn);
         li.appendChild(moveBtns);
 
+        const temPassos = task.subtasks && task.subtasks.length > 0;
+
         const check = document.createElement('div');
-        check.className = 'check' + (done ? ' done' : '');
-        check.textContent = done ? '✓' : '';
-        check.onclick = (e) => { e.stopPropagation(); toggleTask(task.id); };
+        if(temPassos){
+          const feitos = task.subtasks.filter(s => s.done).length;
+          check.className = 'check pipeline-badge' + (done ? ' done' : '');
+          check.textContent = feitos + '/' + task.subtasks.length;
+        } else {
+          check.className = 'check' + (done ? ' done' : '');
+          check.textContent = done ? '✓' : '';
+          check.onclick = (e) => { e.stopPropagation(); toggleTask(task.id); };
+        }
 
         const text = document.createElement('span');
         text.className = 'task-text' + (done ? ' done' : '');
@@ -734,12 +852,87 @@ function render(){
         del.onclick = (e) => { e.stopPropagation(); deleteTask(task.id); };
         li.appendChild(del);
         ul.appendChild(li);
+
+        if(expandedTaskId === task.id){
+          ul.appendChild(buildSubtaskPanel(task));
+        }
       });
     }
 
     section.appendChild(ul);
     container.appendChild(section);
   });
+}
+
+// Painel de mini-passos (aparece só quando a tarefa está expandida).
+// É uma <li> separada, de bloco inteiro, em vez de ficar espremida na
+// linha de flex da tarefa.
+function buildSubtaskPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'subtask-panel';
+  panel.onclick = (e) => e.stopPropagation(); // clicar aqui dentro não deve fechar o painel
+
+  if(!task.subtasks) task.subtasks = [];
+
+  if(task.subtasks.length > 0){
+    const seqRow = document.createElement('label');
+    seqRow.className = 'seq-toggle';
+    const seqCheckbox = document.createElement('input');
+    seqCheckbox.type = 'checkbox';
+    seqCheckbox.checked = !!task.sequential;
+    seqCheckbox.onchange = () => toggleSequential(task.id);
+    seqRow.appendChild(seqCheckbox);
+    seqRow.appendChild(document.createTextNode(' ordem sequencial (só deixa marcar o próximo passo)'));
+    panel.appendChild(seqRow);
+
+    task.subtasks.forEach((sub, i) => {
+      const bloqueado = task.sequential && !sub.done && task.subtasks.slice(0, i).some(s => !s.done);
+
+      const row = document.createElement('div');
+      row.className = 'subtask-row' + (bloqueado ? ' locked' : '');
+
+      const cb = document.createElement('div');
+      cb.className = 'sub-check' + (sub.done ? ' done' : '');
+      cb.textContent = sub.done ? '✓' : '';
+      if(!bloqueado){
+        cb.onclick = () => toggleSubtask(task.id, sub.id);
+      }
+
+      const label = document.createElement('span');
+      label.className = 'sub-text' + (sub.done ? ' done' : '');
+      label.textContent = sub.text;
+
+      const delSub = document.createElement('button');
+      delSub.className = 'del';
+      delSub.textContent = 'x';
+      delSub.onclick = () => deleteSubtask(task.id, sub.id);
+
+      row.appendChild(cb);
+      row.appendChild(label);
+      row.appendChild(delSub);
+      panel.appendChild(row);
+    });
+  }
+
+  const addRow = document.createElement('div');
+  addRow.className = 'add-subtask-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Novo passo...';
+  input.maxLength = 80;
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+';
+  const submeter = () => {
+    addSubtask(task.id, input.value);
+    input.value = '';
+  };
+  addBtn.onclick = submeter;
+  input.addEventListener('keydown', e => { if(e.key === 'Enter') submeter(); });
+  addRow.appendChild(input);
+  addRow.appendChild(addBtn);
+  panel.appendChild(addRow);
+
+  return panel;
 }
 
 // ---------- Persistência via Firestore ----------
@@ -781,7 +974,9 @@ function comecarAEscutarDados(){
     }
     document.getElementById('loadingMsg').style.display = 'none';
     document.getElementById('syncStatus').textContent = pendingWrites ? 'salvando...' : 'sincronizado';
-    const changed = cleanupOnceTasks();
+    const limpouUnicas = cleanupOnceTasks();
+    const reiniciouPipelines = resetExpiredPipelines();
+    const changed = limpouUnicas || reiniciouPipelines;
     render();
     isApplyingRemoteData = false;
     if(changed) salvarNoFirestore();
@@ -815,6 +1010,72 @@ function toggleTask(id){
 
 function deleteTask(id){
   tasks = tasks.filter(t => t.id !== id);
+  render();
+  salvarNoFirestore();
+}
+
+// ---------- Mini-passos (pipeline) dentro de uma tarefa ----------
+
+function addSubtask(taskId, text){
+  const t = text.trim();
+  if(!t) return;
+  const task = tasks.find(x => x.id === taskId);
+  if(!task) return;
+  if(!task.subtasks) task.subtasks = [];
+  task.subtasks.push({
+    id: 's' + Date.now() + Math.random().toString(36).slice(2,6),
+    text: t,
+    done: false
+  });
+  task.cycleKey = currentKey(task.freq); // marca a que período este progresso pertence
+  render();
+  salvarNoFirestore();
+}
+
+function deleteSubtask(taskId, subId){
+  const task = tasks.find(x => x.id === taskId);
+  if(!task || !task.subtasks) return;
+  task.subtasks = task.subtasks.filter(s => s.id !== subId);
+  // recalcula se a tarefa mãe deve ficar marcada como concluída
+  const todosFeitos = task.subtasks.length > 0 && task.subtasks.every(s => s.done);
+  task.doneKey = todosFeitos ? currentKey(task.freq) : null;
+  render();
+  salvarNoFirestore();
+}
+
+function toggleSubtask(taskId, subId){
+  const task = tasks.find(x => x.id === taskId);
+  if(!task || !task.subtasks) return;
+  const idx = task.subtasks.findIndex(s => s.id === subId);
+  if(idx === -1) return;
+  const sub = task.subtasks[idx];
+
+  if(task.sequential && !sub.done){
+    // no modo sequencial, só deixa marcar se todos os passos anteriores já estiverem feitos
+    const temPendenteAntes = task.subtasks.slice(0, idx).some(s => !s.done);
+    if(temPendenteAntes) return;
+  }
+
+  if(task.sequential && sub.done){
+    // desmarcando um passo no modo sequencial: desmarca também os que vêm depois,
+    // pra não deixar um passo "concluído" com um anterior pendente
+    for(let i = idx; i < task.subtasks.length; i++) task.subtasks[i].done = false;
+  } else {
+    sub.done = !sub.done;
+  }
+
+  task.cycleKey = currentKey(task.freq);
+  const todosFeitos = task.subtasks.every(s => s.done);
+  task.doneKey = todosFeitos ? currentKey(task.freq) : null;
+
+  render();
+  salvarNoFirestore();
+}
+
+function toggleSequential(taskId){
+  const task = tasks.find(x => x.id === taskId);
+  if(!task) return;
+  task.sequential = !task.sequential;
   render();
   salvarNoFirestore();
 }
@@ -888,7 +1149,9 @@ document.getElementById('modeBar').addEventListener('click', e => {
 
 setInterval(() => {
   renderTodayLabel();
-  const changed = cleanupOnceTasks();
+  const limpouUnicas = cleanupOnceTasks();
+  const reiniciouPipelines = resetExpiredPipelines();
+  const changed = limpouUnicas || reiniciouPipelines;
   render();
   if(changed) salvarNoFirestore();
 }, 5 * 60 * 1000);
