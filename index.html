@@ -28,6 +28,10 @@
     --once: #5F5E5A;
     --once-ink: #2C2C2A;
     --once-bg: #F1EFE8;
+
+    --pasta: #1D6FA5;
+    --pasta-ink: #0A2E42;
+    --pasta-bg: #DCEFFA;
   }
   *{box-sizing:border-box;}
   body{
@@ -257,6 +261,17 @@
     padding: 2px 6px;
     border-radius: 10px;
   }
+  .task-pasta{
+    flex: none;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--pasta);
+    border: 1px solid var(--pasta);
+    padding: 2px 6px;
+    border-radius: 10px;
+  }
 
   .mode-bar{
     display:flex;
@@ -324,6 +339,21 @@
   .tab.weekly{ background: var(--weekly-bg); color: var(--weekly-ink); }
   .tab.monthly{ background: var(--monthly-bg); color: var(--monthly-ink); }
   .tab.once{ background: var(--once-bg); color: var(--once-ink); }
+  .tab.pasta{ background: var(--pasta-bg); color: var(--pasta-ink); }
+
+  .pasta-action{
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: none;
+    border: 1px solid var(--rule);
+    padding: 3px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    color: var(--ink-soft);
+  }
+  .pasta-action:hover{ color: var(--ink); border-color: var(--ink); }
 
   .period-label{
     font-family: 'Courier New', monospace;
@@ -359,6 +389,9 @@
     font-size: 14px;
     cursor: default;
   }
+  ul.tasks li.missed{
+    box-shadow: inset 0 0 0 2px var(--margin);
+  }
 
   .check{
     width: 20px;
@@ -385,6 +418,16 @@
   .task-text.done{
     color: var(--ink-soft);
     text-decoration: line-through;
+  }
+  .task-edit-input{
+    flex:1;
+    font-family: Georgia, serif;
+    font-size: 15.5px;
+    padding: 2px 6px;
+    border: 1px solid var(--ink);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--ink);
   }
   .del{
     font-family: 'Courier New', monospace;
@@ -446,6 +489,12 @@
     border-bottom: 1px dashed var(--rule);
   }
 
+  @media (max-width: 480px){
+    li.subtask-panel{
+      padding-left: 22px;
+    }
+  }
+
   .seq-toggle{
     display:flex;
     align-items:center;
@@ -487,7 +536,11 @@
   }
   .sub-text{
     flex:1;
+    min-width: 0; /* sem isso, o flexbox não deixa o texto encolher — ele empurra
+                     a linha toda pra fora da tela em vez de quebrar pra baixo */
     font-size: 14px;
+    overflow-wrap: break-word;
+    word-break: break-word;
   }
   .sub-text.done{
     color: var(--ink-soft);
@@ -564,12 +617,20 @@
     <button class="mode-btn" data-mode="ambos">Ambos</button>
   </div>
 
+  <div class="mode-bar" id="viewBar">
+    <span class="mode-label">Ver por:</span>
+    <button class="mode-btn" data-view="freq">Frequência</button>
+    <button class="mode-btn" data-view="pasta">Pasta</button>
+  </div>
+
   <div class="add-box">
     <div class="add-row">
       <input type="text" id="newTaskText" placeholder="Nova tarefa..." maxlength="120">
       <input type="text" id="newTaskCategory" placeholder="Categoria (ex: Faculdade)" maxlength="40" list="categoryOptions">
       <datalist id="categoryOptions"></datalist>
-      <select id="newTaskRegime">
+      <input type="text" id="newTaskPasta" placeholder="Pasta (opcional)" maxlength="40" list="pastaOptions">
+      <datalist id="pastaOptions"></datalist>
+      <select id="newTaskRegime" class="hidden">
         <option value="">Regime: nenhum</option>
         <option value="meio">Regime: meio período</option>
         <option value="integral">Regime: integral</option>
@@ -635,13 +696,24 @@ let unsubscribeSnapshot = null; // pra parar de "escutar" o Firestore quando fiz
 let tasks = [];
 let selectedFreq = 'daily';
 let expandedTaskId = null;
+let editingTaskId = null;
 let selectedCategory = 'all';
 let currentMode = 'ambos';
 let isApplyingRemoteData = false; // evita salvar de volta enquanto só estamos recebendo dados
 
 function renderModeBar(){
-  document.querySelectorAll('.mode-btn').forEach(b => {
+  document.querySelectorAll('.mode-btn[data-mode]').forEach(b => {
     b.classList.toggle('active', b.dataset.mode === currentMode);
+  });
+  // O Regime (meio período/integral) só existe em tarefas de "Trabalho",
+  // então esse filtro só faz sentido aparecer vendo "Trabalho" ou "Todas".
+  const relevante = selectedCategory === 'all' || selectedCategory.toLowerCase() === 'trabalho';
+  document.getElementById('modeBar').classList.toggle('hidden', !relevante);
+}
+
+function renderViewBar(){
+  document.querySelectorAll('.mode-btn[data-view]').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === viewMode);
   });
 }
 
@@ -711,6 +783,39 @@ function cleanupOnceTasks(){
   return tasks.length !== before;
 }
 
+// Marca como "atrasada" (missed) uma tarefa recorrente que virou a
+// página do período (dia/semana/mês) sem ter sido concluída.
+// IMPORTANTE: isso precisa rodar ANTES do resetExpiredPipelines(), porque
+// aquela função zera o doneKey/subtasks do novo ciclo — e é justamente o
+// doneKey do ciclo que ACABOU que usamos aqui pra saber se deu tempo ou não.
+function checkMissedTasks(){
+  let changed = false;
+  tasks.forEach(task => {
+    if(task.freq === 'once') return; // tarefa única não tem "período" pra atrasar
+
+    const key = currentKey(task.freq);
+
+    if(task.lastEvaluatedKey === undefined){
+      // primeira vez que vemos essa tarefa: só começa a contar a partir de agora,
+      // pra não acusar atraso de um período que nem existia quando o app rodou essa checagem pela 1ª vez
+      task.lastEvaluatedKey = key;
+      changed = true;
+      return;
+    }
+
+    if(task.lastEvaluatedKey !== key){
+      // o período anterior (task.lastEvaluatedKey) já terminou — foi cumprido?
+      const foiCumpridaNoPeriodoAnterior = task.doneKey === task.lastEvaluatedKey;
+      if(!foiCumpridaNoPeriodoAnterior){
+        task.missed = true;
+      }
+      task.lastEvaluatedKey = key;
+      changed = true;
+    }
+  });
+  return changed;
+}
+
 // Tarefas recorrentes com mini-passos: quando o período muda (ex: virou
 // a semana), os passos precisam reiniciar do zero, senão o progresso da
 // semana passada ficaria "colado" pra sempre.
@@ -754,17 +859,78 @@ const GROUPS = [
   {freq:'once', label:'Únicas'}
 ];
 
+let viewMode = 'freq'; // 'freq' (padrão, por Diária/Semanal/...) ou 'pasta'
+
+function getVisibleTasks(){
+  return tasks
+    .filter(t => selectedCategory === 'all' || (t.category || 'Geral') === selectedCategory)
+    .filter(t => currentMode === 'ambos' || !t.regime || t.regime === currentMode);
+}
+
+// Monta a lista de "grupos" a exibir, já com as tarefas de cada um dentro.
+// Centralizar essa lógica aqui (em vez de espalhar em render() e moveTask())
+// garante que os dois enxerguem exatamente os mesmos grupos, na mesma ordem.
+function getGroupsToRender(){
+  const visivel = getVisibleTasks();
+
+  if(viewMode === 'pasta'){
+    const nomesDePasta = Array.from(new Set(visivel.map(t => t.pasta || null)));
+    nomesDePasta.sort((a, b) => {
+      if(a === null) return 1;   // "Sem pasta" sempre por último
+      if(b === null) return -1;
+      return a.localeCompare(b, 'pt-BR');
+    });
+    return nomesDePasta.map(nome => ({
+      type: 'pasta',
+      pastaName: nome, // null pra "Sem pasta"
+      label: nome || 'Sem pasta',
+      tasksInGroup: visivel.filter(t => (t.pasta || null) === nome)
+    }));
+  }
+
+  return GROUPS.map(g => ({
+    type: 'freq',
+    freq: g.freq,
+    label: g.label,
+    tasksInGroup: visivel.filter(t => t.freq === g.freq)
+  }));
+}
+
+function distinctPastas(){
+  const set = new Set(tasks.map(t => t.pasta).filter(Boolean));
+  return Array.from(set).sort((a,b) => a.localeCompare(b, 'pt-BR'));
+}
+
+function renomearPasta(nomeAntigo){
+  const novoNome = window.prompt('Novo nome da pasta:', nomeAntigo);
+  if(novoNome === null) return; // cancelou
+  const nome = novoNome.trim();
+  if(!nome || nome === nomeAntigo) return;
+  tasks.forEach(t => { if((t.pasta || null) === nomeAntigo) t.pasta = nome; });
+  render();
+  salvarNoFirestore();
+}
+
+function desfazerPasta(nomePasta){
+  const ok = window.confirm('Isso só solta as tarefas da pasta "' + nomePasta + '" — nenhuma tarefa é apagada. Continuar?');
+  if(!ok) return;
+  tasks.forEach(t => { if((t.pasta || null) === nomePasta) t.pasta = null; });
+  render();
+  salvarNoFirestore();
+}
+
 function render(){
   renderCatBar();
   renderModeBar();
+  renderViewBar();
   const container = document.getElementById('groups');
   container.innerHTML = '';
-  const visibleTasks = tasks
-    .filter(t => selectedCategory === 'all' || (t.category || 'Geral') === selectedCategory)
-    .filter(t => currentMode === 'ambos' || !t.regime || t.regime === currentMode);
 
-  GROUPS.forEach(g => {
-    const groupTasks = visibleTasks.filter(t => t.freq === g.freq);
+  const datalistPastas = document.getElementById('pastaOptions');
+  datalistPastas.innerHTML = distinctPastas().map(p => '<option value="' + p.replace(/"/g,'') + '">').join('');
+
+  getGroupsToRender().forEach(g => {
+    const groupTasks = g.tasksInGroup;
     const doneCount = groupTasks.filter(isDone).length;
 
     const section = document.createElement('section');
@@ -772,10 +938,35 @@ function render(){
 
     const head = document.createElement('div');
     head.className = 'group-head';
-    head.innerHTML =
-      '<span class="tab ' + g.freq + '">' + g.label + '</span>' +
-      '<span class="period-label">' + periodLabelFor(g.freq) + '</span>' +
-      '<span class="progress">' + doneCount + '/' + groupTasks.length + '</span>';
+
+    const tabSpan = document.createElement('span');
+    tabSpan.className = 'tab ' + (g.type === 'freq' ? g.freq : 'pasta');
+    tabSpan.textContent = g.label;
+    head.appendChild(tabSpan);
+
+    if(g.type === 'freq'){
+      const periodSpan = document.createElement('span');
+      periodSpan.className = 'period-label';
+      periodSpan.textContent = periodLabelFor(g.freq);
+      head.appendChild(periodSpan);
+    } else if(g.pastaName){
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'pasta-action';
+      renameBtn.textContent = 'renomear';
+      renameBtn.onclick = () => renomearPasta(g.pastaName);
+      const desfazerBtn = document.createElement('button');
+      desfazerBtn.className = 'pasta-action';
+      desfazerBtn.textContent = 'desfazer pasta';
+      desfazerBtn.onclick = () => desfazerPasta(g.pastaName);
+      head.appendChild(renameBtn);
+      head.appendChild(desfazerBtn);
+    }
+
+    const progressSpan = document.createElement('span');
+    progressSpan.className = 'progress';
+    progressSpan.textContent = doneCount + '/' + groupTasks.length;
+    head.appendChild(progressSpan);
+
     section.appendChild(head);
 
     const ul = document.createElement('ul');
@@ -790,7 +981,10 @@ function render(){
       groupTasks.forEach((task, idx) => {
         const done = isDone(task);
         const li = document.createElement('li');
-        li.className = expandedTaskId === task.id ? 'expanded' : '';
+        const classes = [];
+        if(expandedTaskId === task.id) classes.push('expanded');
+        if(task.missed && !done) classes.push('missed');
+        li.className = classes.join(' ');
         li.onclick = () => {
           expandedTaskId = (expandedTaskId === task.id) ? null : task.id;
           render();
@@ -825,18 +1019,53 @@ function render(){
           check.onclick = (e) => { e.stopPropagation(); toggleTask(task.id); };
         }
 
-        const text = document.createElement('span');
-        text.className = 'task-text' + (done ? ' done' : '');
-        text.textContent = task.text;
+        let textEl;
+        if(editingTaskId === task.id){
+          textEl = document.createElement('input');
+          textEl.type = 'text';
+          textEl.className = 'task-edit-input';
+          textEl.value = task.text;
+          textEl.maxLength = 120;
+          textEl.onclick = (e) => e.stopPropagation();
+          const salvarEdicao = () => {
+            const novoTexto = textEl.value.trim();
+            if(novoTexto) task.text = novoTexto; // se apagar tudo, mantém o nome antigo em vez de ficar em branco
+            editingTaskId = null;
+            render();
+            salvarNoFirestore();
+          };
+          textEl.addEventListener('blur', salvarEdicao);
+          textEl.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            if(e.key === 'Enter'){ e.preventDefault(); textEl.blur(); } // blur() já dispara o salvarEdicao acima
+            if(e.key === 'Escape'){ editingTaskId = null; render(); }
+          });
+        } else {
+          textEl = document.createElement('span');
+          textEl.className = 'task-text' + (done ? ' done' : '');
+          textEl.textContent = task.text;
+          textEl.onclick = (e) => {
+            e.stopPropagation(); // clicar no texto edita; não deve também abrir/fechar a linha
+            editingTaskId = task.id;
+            render();
+          };
+        }
 
         li.appendChild(check);
-        li.appendChild(text);
+        li.appendChild(textEl);
 
         if(selectedCategory === 'all'){
           const catTag = document.createElement('span');
           catTag.className = 'task-cat';
           catTag.textContent = task.category || 'Geral';
           li.appendChild(catTag);
+        }
+
+        if(task.pasta && viewMode === 'freq'){
+          const pastaTag = document.createElement('span');
+          pastaTag.className = 'task-pasta';
+          pastaTag.textContent = task.pasta;
+          li.appendChild(pastaTag);
         }
 
         if(task.regime){
@@ -862,6 +1091,11 @@ function render(){
     section.appendChild(ul);
     container.appendChild(section);
   });
+
+  if(editingTaskId){
+    const campoEdicao = document.querySelector('.task-edit-input');
+    if(campoEdicao){ campoEdicao.focus(); campoEdicao.select(); }
+  }
 }
 
 // Painel de mini-passos (aparece só quando a tarefa está expandida).
@@ -874,7 +1108,11 @@ function buildSubtaskPanel(task){
 
   if(!task.subtasks) task.subtasks = [];
 
-  if(task.subtasks.length > 0){
+  if(task.subtasks.length === 0){
+    // Ainda não existe nenhum passo: este é o momento de "criação" do
+    // pipeline, e é a ÚNICA vez que essa escolha aparece. Depois que o
+    // primeiro passo for adicionado, esse controle some — o valor fica
+    // fixo (só dá pra mudar apagando os passos e recomeçando do zero).
     const seqRow = document.createElement('label');
     seqRow.className = 'seq-toggle';
     const seqCheckbox = document.createElement('input');
@@ -882,9 +1120,9 @@ function buildSubtaskPanel(task){
     seqCheckbox.checked = !!task.sequential;
     seqCheckbox.onchange = () => toggleSequential(task.id);
     seqRow.appendChild(seqCheckbox);
-    seqRow.appendChild(document.createTextNode(' ordem sequencial (só deixa marcar o próximo passo)'));
+    seqRow.appendChild(document.createTextNode(' ordem sequencial (só deixa marcar o próximo passo) — escolha antes de adicionar o 1º passo'));
     panel.appendChild(seqRow);
-
+  } else {
     task.subtasks.forEach((sub, i) => {
       const bloqueado = task.sequential && !sub.done && task.subtasks.slice(0, i).some(s => !s.done);
 
@@ -974,9 +1212,10 @@ function comecarAEscutarDados(){
     }
     document.getElementById('loadingMsg').style.display = 'none';
     document.getElementById('syncStatus').textContent = pendingWrites ? 'salvando...' : 'sincronizado';
+    const marcouAtrasadas = checkMissedTasks();
     const limpouUnicas = cleanupOnceTasks();
     const reiniciouPipelines = resetExpiredPipelines();
-    const changed = limpouUnicas || reiniciouPipelines;
+    const changed = marcouAtrasadas || limpouUnicas || reiniciouPipelines;
     render();
     isApplyingRemoteData = false;
     if(changed) salvarNoFirestore();
@@ -1004,6 +1243,7 @@ function toggleTask(id){
   if(!task) return;
   const done = isDone(task);
   task.doneKey = done ? null : currentKey(task.freq);
+  if(isDone(task)) task.missed = false; // "até o próximo check": chegou, limpa o atraso
   render();
   salvarNoFirestore();
 }
@@ -1039,6 +1279,7 @@ function deleteSubtask(taskId, subId){
   // recalcula se a tarefa mãe deve ficar marcada como concluída
   const todosFeitos = task.subtasks.length > 0 && task.subtasks.every(s => s.done);
   task.doneKey = todosFeitos ? currentKey(task.freq) : null;
+  if(isDone(task)) task.missed = false;
   render();
   salvarNoFirestore();
 }
@@ -1067,6 +1308,7 @@ function toggleSubtask(taskId, subId){
   task.cycleKey = currentKey(task.freq);
   const todosFeitos = task.subtasks.every(s => s.done);
   task.doneKey = todosFeitos ? currentKey(task.freq) : null;
+  if(isDone(task)) task.missed = false;
 
   render();
   salvarNoFirestore();
@@ -1080,24 +1322,21 @@ function toggleSequential(taskId){
   salvarNoFirestore();
 }
 
-// Troca a tarefa de posição dentro da lista que está visível na tela
-// (respeitando os filtros de categoria/regime ativos no momento).
+// Troca a tarefa de posição dentro do grupo em que ela está sendo exibida
+// no momento — usa getGroupsToRender() pra "ver" exatamente a mesma lista
+// que está na tela, seja agrupado por Frequência ou por Pasta.
 function moveTask(id, dir){
-  const task = tasks.find(t => t.id === id);
-  if(!task) return;
+  const grupos = getGroupsToRender();
+  const grupoDaTarefa = grupos.find(g => g.tasksInGroup.some(t => t.id === id));
+  if(!grupoDaTarefa) return;
 
-  const visivelNoGrupo = tasks.filter(t =>
-    t.freq === task.freq &&
-    (selectedCategory === 'all' || (t.category || 'Geral') === selectedCategory) &&
-    (currentMode === 'ambos' || !t.regime || t.regime === currentMode)
-  );
-
+  const visivelNoGrupo = grupoDaTarefa.tasksInGroup;
   const pos = visivelNoGrupo.findIndex(t => t.id === id);
   const novaPos = pos + dir;
   if(novaPos < 0 || novaPos >= visivelNoGrupo.length) return;
 
   const outraTarefa = visivelNoGrupo[novaPos];
-  const i1 = tasks.findIndex(t => t.id === task.id);
+  const i1 = tasks.findIndex(t => t.id === id);
   const i2 = tasks.findIndex(t => t.id === outraTarefa.id);
   [tasks[i1], tasks[i2]] = [tasks[i2], tasks[i1]];
 
@@ -1108,27 +1347,46 @@ function moveTask(id, dir){
 function addTask(){
   const input = document.getElementById('newTaskText');
   const catInput = document.getElementById('newTaskCategory');
+  const pastaInput = document.getElementById('newTaskPasta');
   const regimeInput = document.getElementById('newTaskRegime');
   const text = input.value.trim();
   if(!text) return;
   const category = catInput.value.trim() || 'Geral';
-  const regime = regimeInput.value || null;
+  const pasta = pastaInput.value.trim() || null; // pasta é opcional, sem valor padrão "Geral"
+  // regime só é considerado quando a categoria é "Trabalho" — mesma regra
+  // que decide se o seletor aparece na tela, pra não salvar um valor que
+  // ficou escondido/esquecido de uma digitação anterior
+  const regime = (category.toLowerCase() === 'trabalho' && regimeInput.value) ? regimeInput.value : null;
   tasks.push({
     id: 't' + Date.now() + Math.random().toString(36).slice(2,7),
     text: text,
     category: category,
+    pasta: pasta,
     regime: regime,
     freq: selectedFreq,
     doneKey: null
   });
   input.value = '';
   catInput.value = '';
+  pastaInput.value = '';
   regimeInput.value = '';
+  atualizarVisibilidadeRegime();
   render();
   salvarNoFirestore();
 }
 
 document.getElementById('addBtn').onclick = addTask;
+
+// O Regime (meio período/integral) só faz sentido pra tarefas de "Trabalho",
+// então ele fica escondido até a pessoa digitar essa categoria.
+const categoryInputEl = document.getElementById('newTaskCategory');
+const regimeSelectEl = document.getElementById('newTaskRegime');
+function atualizarVisibilidadeRegime(){
+  const ehTrabalho = categoryInputEl.value.trim().toLowerCase() === 'trabalho';
+  regimeSelectEl.classList.toggle('hidden', !ehTrabalho);
+  if(!ehTrabalho) regimeSelectEl.value = ''; // some a categoria, some junto o valor escolhido
+}
+categoryInputEl.addEventListener('input', atualizarVisibilidadeRegime);
 document.getElementById('newTaskText').addEventListener('keydown', e => {
   if(e.key === 'Enter') addTask();
 });
@@ -1147,11 +1405,19 @@ document.getElementById('modeBar').addEventListener('click', e => {
   salvarNoFirestore();
 });
 
+document.getElementById('viewBar').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if(!btn) return;
+  viewMode = btn.dataset.view;
+  render(); // isso é só visual — não precisa salvar no Firestore
+});
+
 setInterval(() => {
   renderTodayLabel();
+  const marcouAtrasadas = checkMissedTasks();
   const limpouUnicas = cleanupOnceTasks();
   const reiniciouPipelines = resetExpiredPipelines();
-  const changed = limpouUnicas || reiniciouPipelines;
+  const changed = marcouAtrasadas || limpouUnicas || reiniciouPipelines;
   render();
   if(changed) salvarNoFirestore();
 }, 5 * 60 * 1000);
