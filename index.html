@@ -318,6 +318,76 @@
     border-radius: 3px;
   }
 
+  .meta-toggle-label{
+    display:flex;
+    align-items:center;
+    gap: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+  #newTaskMetaAlvo{
+    flex: 0 1 120px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink);
+    border-radius: 3px;
+  }
+
+  .check.meta-locked{
+    width: auto;
+    min-width: 20px;
+    padding: 0 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    background: var(--once-bg);
+    border-color: var(--once);
+    color: var(--once-ink);
+    cursor: default;
+  }
+  ul.tasks li.meta-bloqueada{
+    opacity: 0.6;
+  }
+
+  li.meta-panel{
+    display:block;
+    cursor: default;
+    background: var(--bg);
+    padding: 12px 14px 14px 44px;
+    border-bottom: 1px dashed var(--rule);
+  }
+  .meta-panel-row{
+    display:flex;
+    align-items:center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .meta-panel-row input{
+    width: 110px;
+    font-family: Georgia, serif;
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    border-radius: 3px;
+  }
+  .meta-panel-row button{
+    font-family: 'Courier New', monospace;
+    padding: 6px 12px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
   section.group{
     margin-bottom: 26px;
   }
@@ -623,6 +693,12 @@
     <button class="mode-btn" data-view="pasta">Pasta</button>
   </div>
 
+  <div class="mode-bar" id="metaBar">
+    <span class="mode-label">Bloqueadas por meta:</span>
+    <button class="mode-btn" data-showblocked="false">Escondidas</button>
+    <button class="mode-btn" data-showblocked="true">Mostrar</button>
+  </div>
+
   <div class="add-box">
     <div class="add-row">
       <input type="text" id="newTaskText" placeholder="Nova tarefa..." maxlength="120">
@@ -635,6 +711,10 @@
         <option value="meio">Regime: meio período</option>
         <option value="integral">Regime: integral</option>
       </select>
+      <label class="meta-toggle-label">
+        <input type="checkbox" id="newTaskTemMeta"> tem meta?
+      </label>
+      <input type="number" id="newTaskMetaAlvo" placeholder="Meta (ex: 8000)" class="hidden" min="0" step="0.01">
       <div class="freq-picker" id="freqPicker">
         <button class="freq-btn active" data-freq="daily">Diária</button>
         <button class="freq-btn" data-freq="weekly">Semanal</button>
@@ -714,6 +794,12 @@ function renderModeBar(){
 function renderViewBar(){
   document.querySelectorAll('.mode-btn[data-view]').forEach(b => {
     b.classList.toggle('active', b.dataset.view === viewMode);
+  });
+}
+
+function renderMetaBar(){
+  document.querySelectorAll('.mode-btn[data-showblocked]').forEach(b => {
+    b.classList.toggle('active', b.dataset.showblocked === String(showBlocked));
   });
 }
 
@@ -816,16 +902,18 @@ function checkMissedTasks(){
   return changed;
 }
 
-// Tarefas recorrentes com mini-passos: quando o período muda (ex: virou
-// a semana), os passos precisam reiniciar do zero, senão o progresso da
-// semana passada ficaria "colado" pra sempre.
+// Tarefas recorrentes com mini-passos OU com meta: quando o período muda
+// (ex: virou o mês), tanto os passos quanto o progresso da meta precisam
+// reiniciar do zero, senão ficariam "colados" pra sempre no ciclo antigo.
 function resetExpiredPipelines(){
   let changed = false;
   tasks.forEach(task => {
-    if(task.subtasks && task.subtasks.length > 0 && task.freq !== 'once'){
+    const temAlgoPraResetar = (task.subtasks && task.subtasks.length > 0) || task.meta;
+    if(temAlgoPraResetar && task.freq !== 'once'){
       const key = currentKey(task.freq);
       if(task.cycleKey && task.cycleKey !== key){
-        task.subtasks.forEach(s => { s.done = false; });
+        if(task.subtasks) task.subtasks.forEach(s => { s.done = false; });
+        if(task.meta) task.meta.atual = 0;
         task.doneKey = null;
         task.cycleKey = key;
         changed = true;
@@ -833,6 +921,22 @@ function resetExpiredPipelines(){
     }
   });
   return changed;
+}
+
+// Uma tarefa com meta só pode ser concluída depois que "atual" bate "alvo".
+// Tarefas sem meta nenhuma sempre passam nessa checagem.
+function metaAtingida(task){
+  return !task.meta || task.meta.atual >= task.meta.alvo;
+}
+
+function atualizarMeta(taskId, novoValor){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task || !task.meta) return;
+  const valor = Number(novoValor);
+  task.meta.atual = isNaN(valor) ? 0 : Math.max(0, valor);
+  task.cycleKey = currentKey(task.freq);
+  render();
+  salvarNoFirestore();
 }
 
 const MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
@@ -860,11 +964,13 @@ const GROUPS = [
 ];
 
 let viewMode = 'freq'; // 'freq' (padrão, por Diária/Semanal/...) ou 'pasta'
+let showBlocked = false; // tarefas travadas por meta ficam escondidas por padrão
 
 function getVisibleTasks(){
   return tasks
     .filter(t => selectedCategory === 'all' || (t.category || 'Geral') === selectedCategory)
-    .filter(t => currentMode === 'ambos' || !t.regime || t.regime === currentMode);
+    .filter(t => currentMode === 'ambos' || !t.regime || t.regime === currentMode)
+    .filter(t => showBlocked || metaAtingida(t));
 }
 
 // Monta a lista de "grupos" a exibir, já com as tarefas de cada um dentro.
@@ -923,6 +1029,7 @@ function render(){
   renderCatBar();
   renderModeBar();
   renderViewBar();
+  renderMetaBar();
   const container = document.getElementById('groups');
   container.innerHTML = '';
 
@@ -984,6 +1091,8 @@ function render(){
         const classes = [];
         if(expandedTaskId === task.id) classes.push('expanded');
         if(task.missed && !done) classes.push('missed');
+        const bloqueadaPorMeta = task.meta && !metaAtingida(task);
+        if(bloqueadaPorMeta) classes.push('meta-bloqueada');
         li.className = classes.join(' ');
         li.onclick = () => {
           expandedTaskId = (expandedTaskId === task.id) ? null : task.id;
@@ -1009,7 +1118,12 @@ function render(){
         const temPassos = task.subtasks && task.subtasks.length > 0;
 
         const check = document.createElement('div');
-        if(temPassos){
+        if(bloqueadaPorMeta){
+          // travada: mostra o progresso da meta no lugar do check, sem
+          // dar pra marcar enquanto não bater o valor alvo
+          check.className = 'check meta-locked';
+          check.textContent = '🔒 ' + task.meta.atual.toLocaleString('pt-BR') + '/' + task.meta.alvo.toLocaleString('pt-BR');
+        } else if(temPassos){
           const feitos = task.subtasks.filter(s => s.done).length;
           check.className = 'check pipeline-badge' + (done ? ' done' : '');
           check.textContent = feitos + '/' + task.subtasks.length;
@@ -1083,6 +1197,8 @@ function render(){
         ul.appendChild(li);
 
         if(expandedTaskId === task.id){
+          ul.appendChild(buildPastaPanel(task));
+          if(task.meta) ul.appendChild(buildMetaPanel(task));
           ul.appendChild(buildSubtaskPanel(task));
         }
       });
@@ -1096,6 +1212,98 @@ function render(){
     const campoEdicao = document.querySelector('.task-edit-input');
     if(campoEdicao){ campoEdicao.focus(); campoEdicao.select(); }
   }
+}
+
+// Painel de progresso da meta (aparece quando a tarefa tem meta e está
+// expandida). É onde você atualiza o valor atual sem precisar mostrar
+// a tarefa na lista o tempo todo.
+function moverTarefaParaPasta(taskId, novoNome){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const nome = novoNome.trim();
+  task.pasta = nome || null; // vazio = "sem pasta"
+  render();
+  salvarNoFirestore();
+}
+
+// Painel pra mudar a pasta de uma tarefa já existente, sem precisar
+// recriá-la. Aparece sempre que a tarefa está expandida, junto com
+// os outros painéis (meta / mini-passos).
+function buildPastaPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'pasta: ' + (task.pasta || 'nenhuma') + ' →';
+  row.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.setAttribute('list', 'pastaOptions');
+  input.placeholder = 'nova pasta (vazio = remover)';
+  input.value = task.pasta || '';
+  row.appendChild(input);
+
+  const moverBtn = document.createElement('button');
+  moverBtn.textContent = 'mover';
+  moverBtn.onclick = () => moverTarefaParaPasta(task.id, input.value);
+  row.appendChild(moverBtn);
+
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter') moverTarefaParaPasta(task.id, input.value);
+  });
+
+  panel.appendChild(row);
+  return panel;
+}
+
+function buildMetaPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'valor atual:';
+  row.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '0';
+  input.step = '0.01';
+  input.value = task.meta.atual;
+  row.appendChild(input);
+
+  const metaLabel = document.createElement('span');
+  metaLabel.textContent = '/ meta: ' + task.meta.alvo.toLocaleString('pt-BR');
+  row.appendChild(metaLabel);
+
+  const salvarBtn = document.createElement('button');
+  salvarBtn.textContent = 'salvar';
+  salvarBtn.onclick = () => atualizarMeta(task.id, input.value);
+  row.appendChild(salvarBtn);
+
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter') atualizarMeta(task.id, input.value);
+  });
+
+  panel.appendChild(row);
+
+  if(metaAtingida(task)){
+    const okMsg = document.createElement('div');
+    okMsg.className = 'period-label';
+    okMsg.style.marginTop = '8px';
+    okMsg.textContent = '✓ meta batida — já dá pra marcar a tarefa como concluída';
+    panel.appendChild(okMsg);
+  }
+
+  return panel;
 }
 
 // Painel de mini-passos (aparece só quando a tarefa está expandida).
@@ -1349,6 +1557,8 @@ function addTask(){
   const catInput = document.getElementById('newTaskCategory');
   const pastaInput = document.getElementById('newTaskPasta');
   const regimeInput = document.getElementById('newTaskRegime');
+  const temMetaInput = document.getElementById('newTaskTemMeta');
+  const metaAlvoInput = document.getElementById('newTaskMetaAlvo');
   const text = input.value.trim();
   if(!text) return;
   const category = catInput.value.trim() || 'Geral';
@@ -1357,12 +1567,15 @@ function addTask(){
   // que decide se o seletor aparece na tela, pra não salvar um valor que
   // ficou escondido/esquecido de uma digitação anterior
   const regime = (category.toLowerCase() === 'trabalho' && regimeInput.value) ? regimeInput.value : null;
+  const alvoDigitado = Number(metaAlvoInput.value);
+  const meta = (temMetaInput.checked && alvoDigitado > 0) ? { alvo: alvoDigitado, atual: 0 } : null;
   tasks.push({
     id: 't' + Date.now() + Math.random().toString(36).slice(2,7),
     text: text,
     category: category,
     pasta: pasta,
     regime: regime,
+    meta: meta,
     freq: selectedFreq,
     doneKey: null
   });
@@ -1370,6 +1583,9 @@ function addTask(){
   catInput.value = '';
   pastaInput.value = '';
   regimeInput.value = '';
+  temMetaInput.checked = false;
+  metaAlvoInput.value = '';
+  atualizarVisibilidadeMeta();
   atualizarVisibilidadeRegime();
   render();
   salvarNoFirestore();
@@ -1387,6 +1603,17 @@ function atualizarVisibilidadeRegime(){
   if(!ehTrabalho) regimeSelectEl.value = ''; // some a categoria, some junto o valor escolhido
 }
 categoryInputEl.addEventListener('input', atualizarVisibilidadeRegime);
+
+// O campo de "valor alvo" da meta só aparece quando o checkbox "tem meta?"
+// está marcado — antes disso ele fica escondido, fora do caminho.
+const temMetaCheckboxEl = document.getElementById('newTaskTemMeta');
+const metaAlvoInputEl = document.getElementById('newTaskMetaAlvo');
+function atualizarVisibilidadeMeta(){
+  metaAlvoInputEl.classList.toggle('hidden', !temMetaCheckboxEl.checked);
+  if(!temMetaCheckboxEl.checked) metaAlvoInputEl.value = '';
+}
+temMetaCheckboxEl.addEventListener('change', atualizarVisibilidadeMeta);
+
 document.getElementById('newTaskText').addEventListener('keydown', e => {
   if(e.key === 'Enter') addTask();
 });
@@ -1410,6 +1637,13 @@ document.getElementById('viewBar').addEventListener('click', e => {
   if(!btn) return;
   viewMode = btn.dataset.view;
   render(); // isso é só visual — não precisa salvar no Firestore
+});
+
+document.getElementById('metaBar').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if(!btn) return;
+  showBlocked = btn.dataset.showblocked === 'true';
+  render(); // isso também é só visual, local a este dispositivo
 });
 
 setInterval(() => {
