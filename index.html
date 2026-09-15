@@ -197,6 +197,28 @@
   .freq-btn.active[data-freq="monthly"]{ background: var(--monthly-bg); border-color: var(--monthly); color: var(--monthly-ink); }
   .freq-btn.active[data-freq="once"]{ background: var(--once-bg); border-color: var(--once); color: var(--once-ink); }
 
+  .day-picker{
+    display:flex;
+    gap: 4px;
+  }
+  .day-picker.hidden{ display:none; }
+  .day-btn{
+    width: 26px;
+    height: 30px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink-soft);
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .day-btn.active{
+    background: var(--daily-bg);
+    border-color: var(--daily);
+    color: var(--daily-ink);
+  }
+
   .add-submit{
     font-family: 'Courier New', monospace;
     font-size: 12px;
@@ -271,6 +293,22 @@
     border: 1px solid var(--pasta);
     padding: 2px 6px;
     border-radius: 10px;
+  }
+  .task-dias{
+    flex: none;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--daily-ink);
+    border: 1px solid var(--daily);
+    padding: 2px 6px;
+    border-radius: 10px;
+  }
+
+  .day-toggle-panel{
+    display:flex;
+    gap: 4px;
+    flex-wrap: wrap;
   }
 
   .mode-bar{
@@ -721,6 +759,15 @@
         <button class="freq-btn" data-freq="monthly">Mensal</button>
         <button class="freq-btn" data-freq="once">Única</button>
       </div>
+      <div class="day-picker" id="dayPicker">
+        <button class="day-btn active" data-day="0">D</button>
+        <button class="day-btn active" data-day="1">S</button>
+        <button class="day-btn active" data-day="2">T</button>
+        <button class="day-btn active" data-day="3">Q</button>
+        <button class="day-btn active" data-day="4">Q</button>
+        <button class="day-btn active" data-day="5">S</button>
+        <button class="day-btn active" data-day="6">S</button>
+      </div>
       <button class="add-submit" id="addBtn">Adicionar</button>
     </div>
   </div>
@@ -743,7 +790,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, setDoc, onSnapshot
+  doc, setDoc, getDoc, deleteDoc, collection, writeBatch, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 // Sua configuração do projeto Firebase (identifica o projeto, não é secreta)
@@ -770,11 +817,13 @@ const db = initializeFirestore(app, {
 });
 
 let currentUser = null;
-let unsubscribeSnapshot = null; // pra parar de "escutar" o Firestore quando fizer logout
+let unsubscribeModo = null;    // pra parar de "escutar" o documento de modo no logout
+let unsubscribeTarefas = null; // pra parar de "escutar" a coleção de tarefas no logout
 
 // ---------- Estado do app (igual antes) ----------
 let tasks = [];
 let selectedFreq = 'daily';
+let diasSelecionados = new Set([0,1,2,3,4,5,6]); // formulário de nova tarefa: começa com todos os dias
 let expandedTaskId = null;
 let editingTaskId = null;
 let selectedCategory = 'all';
@@ -864,9 +913,29 @@ function isDone(task){
 
 function cleanupOnceTasks(){
   const today = dailyKey(new Date());
-  const before = tasks.length;
-  tasks = tasks.filter(t => !(t.freq === 'once' && t.doneKey && t.doneKey !== today));
-  return tasks.length !== before;
+  const idsParaApagar = [];
+  tasks = tasks.filter(t => {
+    const expirou = t.freq === 'once' && t.doneKey && t.doneKey !== today;
+    if(expirou) idsParaApagar.push(t.id);
+    return !expirou;
+  });
+  return idsParaApagar;
+}
+
+// Dado um dailyKey ("2026-09-14"), devolve o dia da semana dele (0=domingo).
+// Usado pra saber se uma tarefa diária com dias customizados (ex: academia,
+// só de segunda a sábado) realmente "valia" naquele dia específico.
+function weekdayFromDailyKey(key){
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+// Uma tarefa diária só é "esperada" num dia se esse dia estiver na lista de
+// dias ativos dela. task.diasAtivos === null/undefined significa "todo dia"
+// (comportamento original, continua valendo pras tarefas já existentes).
+function diaEhAtivoParaTarefa(task, diaDaSemana){
+  if(task.freq !== 'daily' || !task.diasAtivos) return true;
+  return task.diasAtivos.includes(diaDaSemana);
 }
 
 // Marca como "atrasada" (missed) uma tarefa recorrente que virou a
@@ -875,7 +944,7 @@ function cleanupOnceTasks(){
 // aquela função zera o doneKey/subtasks do novo ciclo — e é justamente o
 // doneKey do ciclo que ACABOU que usamos aqui pra saber se deu tempo ou não.
 function checkMissedTasks(){
-  let changed = false;
+  const tarefasAlteradas = [];
   tasks.forEach(task => {
     if(task.freq === 'once') return; // tarefa única não tem "período" pra atrasar
 
@@ -885,28 +954,35 @@ function checkMissedTasks(){
       // primeira vez que vemos essa tarefa: só começa a contar a partir de agora,
       // pra não acusar atraso de um período que nem existia quando o app rodou essa checagem pela 1ª vez
       task.lastEvaluatedKey = key;
-      changed = true;
+      tarefasAlteradas.push(task);
       return;
     }
 
     if(task.lastEvaluatedKey !== key){
-      // o período anterior (task.lastEvaluatedKey) já terminou — foi cumprido?
-      const foiCumpridaNoPeriodoAnterior = task.doneKey === task.lastEvaluatedKey;
-      if(!foiCumpridaNoPeriodoAnterior){
-        task.missed = true;
+      // o período anterior (task.lastEvaluatedKey) já terminou — mas só conta
+      // como "perdido" se aquele dia era mesmo um dia em que a tarefa valia
+      // (ex: não acusa academia de domingo, se domingo não está nos dias ativos)
+      const diaAnteriorEraAtivo = task.freq !== 'daily'
+        || diaEhAtivoParaTarefa(task, weekdayFromDailyKey(task.lastEvaluatedKey));
+
+      if(diaAnteriorEraAtivo){
+        const foiCumpridaNoPeriodoAnterior = task.doneKey === task.lastEvaluatedKey;
+        if(!foiCumpridaNoPeriodoAnterior){
+          task.missed = true;
+        }
       }
       task.lastEvaluatedKey = key;
-      changed = true;
+      tarefasAlteradas.push(task);
     }
   });
-  return changed;
+  return tarefasAlteradas;
 }
 
 // Tarefas recorrentes com mini-passos OU com meta: quando o período muda
 // (ex: virou o mês), tanto os passos quanto o progresso da meta precisam
 // reiniciar do zero, senão ficariam "colados" pra sempre no ciclo antigo.
 function resetExpiredPipelines(){
-  let changed = false;
+  const tarefasAlteradas = [];
   tasks.forEach(task => {
     const temAlgoPraResetar = (task.subtasks && task.subtasks.length > 0) || task.meta;
     if(temAlgoPraResetar && task.freq !== 'once'){
@@ -916,11 +992,11 @@ function resetExpiredPipelines(){
         if(task.meta) task.meta.atual = 0;
         task.doneKey = null;
         task.cycleKey = key;
-        changed = true;
+        tarefasAlteradas.push(task);
       }
     }
   });
-  return changed;
+  return tarefasAlteradas;
 }
 
 // Uma tarefa com meta só pode ser concluída depois que "atual" bate "alvo".
@@ -936,7 +1012,7 @@ function atualizarMeta(taskId, novoValor){
   task.meta.atual = isNaN(valor) ? 0 : Math.max(0, valor);
   task.cycleKey = currentKey(task.freq);
   render();
-  salvarNoFirestore();
+  salvarTarefa(task);
 }
 
 const MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
@@ -967,10 +1043,12 @@ let viewMode = 'freq'; // 'freq' (padrão, por Diária/Semanal/...) ou 'pasta'
 let showBlocked = false; // tarefas travadas por meta ficam escondidas por padrão
 
 function getVisibleTasks(){
+  const hoje = new Date().getDay();
   return tasks
     .filter(t => selectedCategory === 'all' || (t.category || 'Geral') === selectedCategory)
     .filter(t => currentMode === 'ambos' || !t.regime || t.regime === currentMode)
-    .filter(t => showBlocked || metaAtingida(t));
+    .filter(t => showBlocked || metaAtingida(t))
+    .filter(t => diaEhAtivoParaTarefa(t, hoje));
 }
 
 // Monta a lista de "grupos" a exibir, já com as tarefas de cada um dentro.
@@ -1012,17 +1090,19 @@ function renomearPasta(nomeAntigo){
   if(novoNome === null) return; // cancelou
   const nome = novoNome.trim();
   if(!nome || nome === nomeAntigo) return;
-  tasks.forEach(t => { if((t.pasta || null) === nomeAntigo) t.pasta = nome; });
+  const afetadas = tasks.filter(t => (t.pasta || null) === nomeAntigo);
+  afetadas.forEach(t => { t.pasta = nome; });
   render();
-  salvarNoFirestore();
+  salvarVariasTarefas(afetadas, []);
 }
 
 function desfazerPasta(nomePasta){
   const ok = window.confirm('Isso só solta as tarefas da pasta "' + nomePasta + '" — nenhuma tarefa é apagada. Continuar?');
   if(!ok) return;
-  tasks.forEach(t => { if((t.pasta || null) === nomePasta) t.pasta = null; });
+  const afetadas = tasks.filter(t => (t.pasta || null) === nomePasta);
+  afetadas.forEach(t => { t.pasta = null; });
   render();
-  salvarNoFirestore();
+  salvarVariasTarefas(afetadas, []);
 }
 
 function render(){
@@ -1146,7 +1226,7 @@ function render(){
             if(novoTexto) task.text = novoTexto; // se apagar tudo, mantém o nome antigo em vez de ficar em branco
             editingTaskId = null;
             render();
-            salvarNoFirestore();
+            salvarTarefa(task);
           };
           textEl.addEventListener('blur', salvarEdicao);
           textEl.addEventListener('keydown', (e) => {
@@ -1182,6 +1262,13 @@ function render(){
           li.appendChild(pastaTag);
         }
 
+        if(task.diasAtivos){
+          const diasTag = document.createElement('span');
+          diasTag.className = 'task-dias';
+          diasTag.textContent = task.diasAtivos.map(d => 'DSTQQSS'[d]).join(' ');
+          li.appendChild(diasTag);
+        }
+
         if(task.regime){
           const regimeTag = document.createElement('span');
           regimeTag.className = 'task-regime';
@@ -1198,6 +1285,7 @@ function render(){
 
         if(expandedTaskId === task.id){
           ul.appendChild(buildPastaPanel(task));
+          if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
           if(task.meta) ul.appendChild(buildMetaPanel(task));
           ul.appendChild(buildSubtaskPanel(task));
         }
@@ -1223,7 +1311,7 @@ function moverTarefaParaPasta(taskId, novoNome){
   const nome = novoNome.trim();
   task.pasta = nome || null; // vazio = "sem pasta"
   render();
-  salvarNoFirestore();
+  salvarTarefa(task);
 }
 
 // Painel pra mudar a pasta de uma tarefa já existente, sem precisar
@@ -1256,6 +1344,46 @@ function buildPastaPanel(task){
   input.addEventListener('keydown', e => {
     if(e.key === 'Enter') moverTarefaParaPasta(task.id, input.value);
   });
+
+  panel.appendChild(row);
+  return panel;
+}
+
+function toggleDiaAtivo(taskId, dia){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const diasAtuais = task.diasAtivos ? [...task.diasAtivos] : [0,1,2,3,4,5,6];
+  const dias = diasAtuais.includes(dia)
+    ? diasAtuais.filter(d => d !== dia)
+    : [...diasAtuais, dia].sort();
+  task.diasAtivos = (dias.length === 7) ? null : dias; // 7 de 7 = "todo dia", volta ao padrão
+  render();
+  salvarTarefa(task);
+}
+
+// Painel pra mudar em quais dias da semana uma tarefa DIÁRIA já existente
+// realmente vale (ex: academia que não abre domingo).
+function buildDiasAtivosPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'dias ativos:';
+  row.appendChild(label);
+
+  const diasAtuais = task.diasAtivos || [0,1,2,3,4,5,6];
+  const letras = 'DSTQQSS';
+  for(let dia = 0; dia < 7; dia++){
+    const btn = document.createElement('button');
+    btn.className = 'day-btn' + (diasAtuais.includes(dia) ? ' active' : '');
+    btn.textContent = letras[dia];
+    btn.onclick = () => toggleDiaAtivo(task.id, dia);
+    row.appendChild(btn);
+  }
 
   panel.appendChild(row);
   return panel;
@@ -1382,53 +1510,144 @@ function buildSubtaskPanel(task){
 }
 
 // ---------- Persistência via Firestore ----------
-// Cada usuário tem UM documento em "usuarios/<uid>" contendo
-// suas tarefas e o modo atual. Sempre que salvamos, o Firestore
-// avisa TODOS os dispositivos abertos com esse mesmo login
-// (onSnapshot), então a atualização é automática.
+// ANTES: um documento único "usuarios/<uid>" guardava um campo "tasks"
+// com o array INTEIRO. Toda alteração reenviava tudo, e se alguma aba
+// tivesse uma cópia desatualizada na memória (ex: aba em segundo plano
+// por muito tempo), ela podia sobrescrever o array inteiro com dados
+// velhos, apagando mudanças novas de qualquer outro dispositivo.
+//
+// AGORA: cada tarefa é o SEU PRÓPRIO documento, dentro de
+// "usuarios/<uid>/tarefas/<idDaTarefa>". Uma escrita só mexe no
+// documento daquela tarefa específica — uma aba desatualizada, na
+// pior das hipóteses, só estraga a tarefa que ela mesma tocou por
+// último, nunca mais a lista inteira.
+// O documento "usuarios/<uid>" agora guarda só o campo "mode".
 
-function docRefAtual(){
+function tarefasColRef(){
+  return collection(db, 'usuarios', currentUser.uid, 'tarefas');
+}
+
+function usuarioDocRef(){
   return doc(db, 'usuarios', currentUser.uid);
 }
 
-async function salvarNoFirestore(){
+async function salvarTarefa(task){
   if(!currentUser || isApplyingRemoteData) return;
   try{
     document.getElementById('syncStatus').textContent = 'salvando...';
-    await setDoc(docRefAtual(), { tasks, mode: currentMode }, { merge: true });
-    document.getElementById('syncStatus').textContent = 'sincronizado';
+    await setDoc(doc(tarefasColRef(), task.id), task);
   }catch(e){
-    console.error('Falha ao salvar no Firestore', e);
+    console.error('Falha ao salvar tarefa', e);
     document.getElementById('syncStatus').textContent = 'erro ao salvar';
   }
 }
 
+async function apagarTarefaDoc(taskId){
+  if(!currentUser) return;
+  try{
+    await deleteDoc(doc(tarefasColRef(), taskId));
+  }catch(e){
+    console.error('Falha ao apagar tarefa', e);
+  }
+}
+
+// Salva várias tarefas de uma vez (e apaga outras) numa única operação
+// atômica — usado pelas rotinas de manutenção (atrasadas, reset de
+// pipeline/meta, limpeza de únicas), que podem mexer em mais de uma
+// tarefa ao mesmo tempo.
+async function salvarVariasTarefas(tarefasParaSalvar, idsParaApagar){
+  if(!currentUser) return;
+  if(tarefasParaSalvar.length === 0 && idsParaApagar.length === 0) return;
+  try{
+    document.getElementById('syncStatus').textContent = 'salvando...';
+    const batch = writeBatch(db);
+    tarefasParaSalvar.forEach(t => batch.set(doc(tarefasColRef(), t.id), t));
+    idsParaApagar.forEach(id => batch.delete(doc(tarefasColRef(), id)));
+    await batch.commit();
+  }catch(e){
+    console.error('Falha ao salvar em lote', e);
+    document.getElementById('syncStatus').textContent = 'erro ao salvar';
+  }
+}
+
+async function salvarModo(){
+  if(!currentUser || isApplyingRemoteData) return;
+  try{
+    await setDoc(usuarioDocRef(), { mode: currentMode }, { merge: true });
+  }catch(e){
+    console.error('Falha ao salvar modo', e);
+  }
+}
+
+// Migração de contas antigas: se o documento do usuário ainda tiver
+// aquele campo "tasks" (array inteiro, do jeito antigo), transforma
+// cada item dele num documento separado na nova coleção, uma única vez.
+// É seguro rodar isso de novo por engano — usa o mesmo id de sempre,
+// então só sobrescreve com o mesmo conteúdo, nunca duplica.
+async function migrarDadosAntigosSeNecessario(){
+  const refUsuario = usuarioDocRef();
+  const snap = await getDoc(refUsuario);
+  const data = snap.data();
+  if(!data || !Array.isArray(data.tasks) || data.tasks.length === 0) return;
+
+  const batch = writeBatch(db);
+  data.tasks.forEach((t, i) => {
+    const id = t.id || ('t' + Date.now() + i);
+    const tarefaComOrdem = { ...t, id, ordem: (t.ordem != null ? t.ordem : i) };
+    batch.set(doc(tarefasColRef(), id), tarefaComOrdem);
+  });
+  // sobrescreve o documento do usuário SEM o campo "tasks" antigo — a partir
+  // de agora ele só guarda o modo, as tarefas vivem todas na subcoleção
+  batch.set(refUsuario, { mode: data.mode || 'ambos' });
+  await batch.commit();
+}
+
+let pendingWritesModo = false;
+let pendingWritesTarefas = false;
 let pendingWrites = false;
 
+function atualizarStatusSincronizacao(){
+  pendingWrites = pendingWritesModo || pendingWritesTarefas;
+  document.getElementById('syncStatus').textContent = pendingWrites ? 'salvando...' : 'sincronizado';
+}
+
 function comecarAEscutarDados(){
-  unsubscribeSnapshot = onSnapshot(docRefAtual(), { includeMetadataChanges: true }, (snap) => {
-    pendingWrites = snap.metadata.hasPendingWrites;
+  unsubscribeModo = onSnapshot(usuarioDocRef(), { includeMetadataChanges: true }, (snap) => {
+    pendingWritesModo = snap.metadata.hasPendingWrites;
+    const data = snap.data();
+    currentMode = (data && data.mode) || 'ambos';
+    atualizarStatusSincronizacao();
+    render();
+  }, (err) => {
+    console.error('Erro ao escutar modo', err);
+    document.getElementById('syncStatus').textContent = 'sem conexão';
+  });
+
+  unsubscribeTarefas = onSnapshot(tarefasColRef(), { includeMetadataChanges: true }, (snap) => {
+    pendingWritesTarefas = snap.metadata.hasPendingWrites;
 
     isApplyingRemoteData = true;
-    const data = snap.data();
-    if(data){
-      tasks = data.tasks || [];
-      currentMode = data.mode || 'ambos';
-    } else {
-      tasks = [];
-      currentMode = 'ambos';
-    }
+    tasks = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    tasks.sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
+
     document.getElementById('loadingMsg').style.display = 'none';
-    document.getElementById('syncStatus').textContent = pendingWrites ? 'salvando...' : 'sincronizado';
-    const marcouAtrasadas = checkMissedTasks();
-    const limpouUnicas = cleanupOnceTasks();
-    const reiniciouPipelines = resetExpiredPipelines();
-    const changed = marcouAtrasadas || limpouUnicas || reiniciouPipelines;
+    atualizarStatusSincronizacao();
+
+    const tarefasComAtraso = checkMissedTasks();
+    const idsParaApagar = cleanupOnceTasks();
+    const tarefasComPipelineResetado = resetExpiredPipelines();
+
     render();
     isApplyingRemoteData = false;
-    if(changed) salvarNoFirestore();
+
+    // junta as duas listas de "tarefas alteradas pela manutenção" sem duplicar,
+    // caso a mesma tarefa apareça em ambas
+    const mapaTarefasAlteradas = new Map();
+    tarefasComAtraso.forEach(t => mapaTarefasAlteradas.set(t.id, t));
+    tarefasComPipelineResetado.forEach(t => mapaTarefasAlteradas.set(t.id, t));
+    salvarVariasTarefas(Array.from(mapaTarefasAlteradas.values()), idsParaApagar);
   }, (err) => {
-    console.error('Erro ao escutar Firestore', err);
+    console.error('Erro ao escutar tarefas', err);
     document.getElementById('syncStatus').textContent = 'sem conexão';
   });
 }
@@ -1443,7 +1662,8 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 function pararDeEscutar(){
-  if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
+  if(unsubscribeModo){ unsubscribeModo(); unsubscribeModo = null; }
+  if(unsubscribeTarefas){ unsubscribeTarefas(); unsubscribeTarefas = null; }
 }
 
 function toggleTask(id){
@@ -1453,13 +1673,13 @@ function toggleTask(id){
   task.doneKey = done ? null : currentKey(task.freq);
   if(isDone(task)) task.missed = false; // "até o próximo check": chegou, limpa o atraso
   render();
-  salvarNoFirestore();
+  salvarTarefa(task);
 }
 
 function deleteTask(id){
   tasks = tasks.filter(t => t.id !== id);
   render();
-  salvarNoFirestore();
+  apagarTarefaDoc(id);
 }
 
 // ---------- Mini-passos (pipeline) dentro de uma tarefa ----------
@@ -1477,7 +1697,7 @@ function addSubtask(taskId, text){
   });
   task.cycleKey = currentKey(task.freq); // marca a que período este progresso pertence
   render();
-  salvarNoFirestore();
+  salvarTarefa(task);
 }
 
 function deleteSubtask(taskId, subId){
@@ -1489,7 +1709,7 @@ function deleteSubtask(taskId, subId){
   task.doneKey = todosFeitos ? currentKey(task.freq) : null;
   if(isDone(task)) task.missed = false;
   render();
-  salvarNoFirestore();
+  salvarTarefa(task);
 }
 
 function toggleSubtask(taskId, subId){
@@ -1519,7 +1739,7 @@ function toggleSubtask(taskId, subId){
   if(isDone(task)) task.missed = false;
 
   render();
-  salvarNoFirestore();
+  salvarTarefa(task);
 }
 
 function toggleSequential(taskId){
@@ -1527,12 +1747,16 @@ function toggleSequential(taskId){
   if(!task) return;
   task.sequential = !task.sequential;
   render();
-  salvarNoFirestore();
+  salvarTarefa(task);
 }
 
 // Troca a tarefa de posição dentro do grupo em que ela está sendo exibida
 // no momento — usa getGroupsToRender() pra "ver" exatamente a mesma lista
 // que está na tela, seja agrupado por Frequência ou por Pasta.
+// Como cada tarefa agora é um documento separado, a ordem entre elas
+// precisa ser um CAMPO salvo (não dá mais pra confiar só na posição
+// dentro do array) — por isso aqui a gente troca o campo "ordem" das
+// duas tarefas envolvidas.
 function moveTask(id, dir){
   const grupos = getGroupsToRender();
   const grupoDaTarefa = grupos.find(g => g.tasksInGroup.some(t => t.id === id));
@@ -1543,13 +1767,21 @@ function moveTask(id, dir){
   const novaPos = pos + dir;
   if(novaPos < 0 || novaPos >= visivelNoGrupo.length) return;
 
-  const outraTarefa = visivelNoGrupo[novaPos];
-  const i1 = tasks.findIndex(t => t.id === id);
-  const i2 = tasks.findIndex(t => t.id === outraTarefa.id);
+  const tarefaA = visivelNoGrupo[pos];
+  const tarefaB = visivelNoGrupo[novaPos];
+  const ordemA = tarefaA.ordem || 0;
+  const ordemB = tarefaB.ordem || 0;
+  tarefaA.ordem = ordemB;
+  tarefaB.ordem = ordemA;
+
+  // também troca a posição no array local, pra tela atualizar na hora,
+  // sem esperar o Firestore confirmar e mandar de volta
+  const i1 = tasks.findIndex(t => t.id === tarefaA.id);
+  const i2 = tasks.findIndex(t => t.id === tarefaB.id);
   [tasks[i1], tasks[i2]] = [tasks[i2], tasks[i1]];
 
   render();
-  salvarNoFirestore();
+  salvarVariasTarefas([tarefaA, tarefaB], []);
 }
 
 function addTask(){
@@ -1569,26 +1801,36 @@ function addTask(){
   const regime = (category.toLowerCase() === 'trabalho' && regimeInput.value) ? regimeInput.value : null;
   const alvoDigitado = Number(metaAlvoInput.value);
   const meta = (temMetaInput.checked && alvoDigitado > 0) ? { alvo: alvoDigitado, atual: 0 } : null;
-  tasks.push({
+  // dias ativos só faz sentido pra tarefas diárias; null = "todo dia" (padrão)
+  const diasAtivos = (selectedFreq === 'daily' && diasSelecionados.size < 7)
+    ? Array.from(diasSelecionados).sort()
+    : null;
+  // nova tarefa entra no fim da lista — maior "ordem" existente + 1
+  const maiorOrdem = tasks.reduce((max, t) => Math.max(max, t.ordem || 0), 0);
+  const novaTarefa = {
     id: 't' + Date.now() + Math.random().toString(36).slice(2,7),
     text: text,
     category: category,
     pasta: pasta,
     regime: regime,
     meta: meta,
+    diasAtivos: diasAtivos,
     freq: selectedFreq,
-    doneKey: null
-  });
+    doneKey: null,
+    ordem: maiorOrdem + 1
+  };
+  tasks.push(novaTarefa);
   input.value = '';
   catInput.value = '';
   pastaInput.value = '';
   regimeInput.value = '';
   temMetaInput.checked = false;
   metaAlvoInput.value = '';
+  resetarDiaPicker();
   atualizarVisibilidadeMeta();
   atualizarVisibilidadeRegime();
   render();
-  salvarNoFirestore();
+  salvarTarefa(novaTarefa);
 }
 
 document.getElementById('addBtn').onclick = addTask;
@@ -1623,13 +1865,32 @@ document.getElementById('freqPicker').addEventListener('click', e => {
   selectedFreq = btn.dataset.freq;
   document.querySelectorAll('.freq-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  document.getElementById('dayPicker').classList.toggle('hidden', selectedFreq !== 'daily');
 });
+
+document.getElementById('dayPicker').addEventListener('click', e => {
+  const btn = e.target.closest('.day-btn');
+  if(!btn) return;
+  const dia = Number(btn.dataset.day);
+  if(diasSelecionados.has(dia)){
+    diasSelecionados.delete(dia);
+    btn.classList.remove('active');
+  } else {
+    diasSelecionados.add(dia);
+    btn.classList.add('active');
+  }
+});
+
+function resetarDiaPicker(){
+  diasSelecionados = new Set([0,1,2,3,4,5,6]);
+  document.querySelectorAll('#dayPicker .day-btn').forEach(b => b.classList.add('active'));
+}
 document.getElementById('modeBar').addEventListener('click', e => {
   const btn = e.target.closest('.mode-btn');
   if(!btn) return;
   currentMode = btn.dataset.mode;
   render();
-  salvarNoFirestore();
+  salvarModo();
 });
 
 document.getElementById('viewBar').addEventListener('click', e => {
@@ -1648,12 +1909,15 @@ document.getElementById('metaBar').addEventListener('click', e => {
 
 setInterval(() => {
   renderTodayLabel();
-  const marcouAtrasadas = checkMissedTasks();
-  const limpouUnicas = cleanupOnceTasks();
-  const reiniciouPipelines = resetExpiredPipelines();
-  const changed = marcouAtrasadas || limpouUnicas || reiniciouPipelines;
+  const tarefasComAtraso = checkMissedTasks();
+  const idsParaApagar = cleanupOnceTasks();
+  const tarefasComPipelineResetado = resetExpiredPipelines();
   render();
-  if(changed) salvarNoFirestore();
+
+  const mapaTarefasAlteradas = new Map();
+  tarefasComAtraso.forEach(t => mapaTarefasAlteradas.set(t.id, t));
+  tarefasComPipelineResetado.forEach(t => mapaTarefasAlteradas.set(t.id, t));
+  salvarVariasTarefas(Array.from(mapaTarefasAlteradas.values()), idsParaApagar);
 }, 5 * 60 * 1000);
 
 // ---------- Login / Autenticação ----------
@@ -1697,13 +1961,18 @@ document.getElementById('btnSair').onclick = async () => {
   await signOut(auth);
 };
 
-onAuthStateChanged(auth, (user) => {
+onAuthStateChanged(auth, async (user) => {
   currentUser = user;
   if(user){
     loginScreen.classList.add('hidden');
     appScreen.classList.remove('hidden');
     document.getElementById('accountEmail').textContent = user.email;
     renderTodayLabel();
+    try{
+      await migrarDadosAntigosSeNecessario();
+    }catch(e){
+      console.error('Falha ao migrar dados antigos', e);
+    }
     comecarAEscutarDados();
   } else {
     appScreen.classList.add('hidden');
