@@ -835,6 +835,7 @@ let tasks = [];
 let selectedFreq = 'daily';
 let diasSelecionados = new Set([0,1,2,3,4,5,6]); // formulário de nova tarefa: começa com todos os dias
 let expandedTaskId = null;
+let subtasksOpenId = null; // controla só a visibilidade dos mini-passos ao clicar na tarefa mãe (separado do "editar")
 let focarCampoDeNomeAoAbrir = false; // liga só no instante em que "editar" é clicado
 let selectedCategory = 'all';
 let currentMode = 'ambos';
@@ -1268,9 +1269,13 @@ function render(){
           const feitos = task.subtasks.filter(s => s.done).length;
           check.className = 'check pipeline-badge' + (done ? ' done' : '');
           check.textContent = feitos + '/' + task.subtasks.length;
-          // tarefa mãe não tem "marcar direto" — clicar nela já abre os
-          // mini-passos, sem precisar passar pelo botão "editar" antes
-          li.onclick = () => abrirOuFecharEdicao(false);
+          // tarefa mãe não tem "marcar direto" — clicar nela só abre/fecha os
+          // mini-passos, sem mexer no painel de editar (pasta/meta/nome ficam
+          // só no botão "editar" mesmo)
+          li.onclick = () => {
+            subtasksOpenId = (subtasksOpenId === task.id) ? null : task.id;
+            render();
+          };
           li.style.cursor = 'pointer';
         } else {
           check.className = 'check' + (done ? ' done' : '');
@@ -1360,6 +1365,11 @@ function render(){
           ul.appendChild(buildPastaPanel(task));
           if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
           ul.appendChild(task.meta ? buildMetaPanel(task) : buildAddMetaPanel(task));
+        }
+        // os mini-passos aparecem tanto no "editar" completo quanto no clique
+        // direto na tarefa mãe — mas os dois não duplicam o painel se os dois
+        // estiverem "abertos" ao mesmo tempo por acaso
+        if(expandedTaskId === task.id || subtasksOpenId === task.id){
           ul.appendChild(buildSubtaskPanel(task));
         }
       });
