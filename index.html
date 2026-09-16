@@ -488,7 +488,6 @@
     gap: 12px;
     padding: 10px 14px;
     border-bottom: 1px dashed var(--rule);
-    cursor: pointer;
   }
   ul.tasks li:last-child{ border-bottom:none; }
   ul.tasks li.empty{
@@ -527,16 +526,6 @@
     color: var(--ink-soft);
     text-decoration: line-through;
   }
-  .task-edit-input{
-    flex:1;
-    font-family: Georgia, serif;
-    font-size: 15.5px;
-    padding: 2px 6px;
-    border: 1px solid var(--ink);
-    border-radius: 3px;
-    background: #fff;
-    color: var(--ink);
-  }
   .del{
     font-family: 'Courier New', monospace;
     font-size: 11px;
@@ -547,6 +536,17 @@
     padding: 4px 6px;
   }
   .del:hover{ color: var(--margin); }
+
+  .edit-btn{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+  }
+  .edit-btn:hover{ color: var(--ink); }
 
   .move-btns{
     display:flex;
@@ -825,7 +825,6 @@ let tasks = [];
 let selectedFreq = 'daily';
 let diasSelecionados = new Set([0,1,2,3,4,5,6]); // formulário de nova tarefa: começa com todos os dias
 let expandedTaskId = null;
-let editingTaskId = null;
 let selectedCategory = 'all';
 let currentMode = 'ambos';
 let isApplyingRemoteData = false; // evita salvar de volta enquanto só estamos recebendo dados
@@ -1174,10 +1173,6 @@ function render(){
         const bloqueadaPorMeta = task.meta && !metaAtingida(task);
         if(bloqueadaPorMeta) classes.push('meta-bloqueada');
         li.className = classes.join(' ');
-        li.onclick = () => {
-          expandedTaskId = (expandedTaskId === task.id) ? null : task.id;
-          render();
-        };
 
         const moveBtns = document.createElement('div');
         moveBtns.className = 'move-btns';
@@ -1213,37 +1208,9 @@ function render(){
           check.onclick = (e) => { e.stopPropagation(); toggleTask(task.id); };
         }
 
-        let textEl;
-        if(editingTaskId === task.id){
-          textEl = document.createElement('input');
-          textEl.type = 'text';
-          textEl.className = 'task-edit-input';
-          textEl.value = task.text;
-          textEl.maxLength = 120;
-          textEl.onclick = (e) => e.stopPropagation();
-          const salvarEdicao = () => {
-            const novoTexto = textEl.value.trim();
-            if(novoTexto) task.text = novoTexto; // se apagar tudo, mantém o nome antigo em vez de ficar em branco
-            editingTaskId = null;
-            render();
-            salvarTarefa(task);
-          };
-          textEl.addEventListener('blur', salvarEdicao);
-          textEl.addEventListener('keydown', (e) => {
-            e.stopPropagation();
-            if(e.key === 'Enter'){ e.preventDefault(); textEl.blur(); } // blur() já dispara o salvarEdicao acima
-            if(e.key === 'Escape'){ editingTaskId = null; render(); }
-          });
-        } else {
-          textEl = document.createElement('span');
-          textEl.className = 'task-text' + (done ? ' done' : '');
-          textEl.textContent = task.text;
-          textEl.onclick = (e) => {
-            e.stopPropagation(); // clicar no texto edita; não deve também abrir/fechar a linha
-            editingTaskId = task.id;
-            render();
-          };
-        }
+        const textEl = document.createElement('span');
+        textEl.className = 'task-text' + (done ? ' done' : '');
+        textEl.textContent = task.text;
 
         li.appendChild(check);
         li.appendChild(textEl);
@@ -1276,6 +1243,16 @@ function render(){
           li.appendChild(regimeTag);
         }
 
+        const editBtn = document.createElement('button');
+        editBtn.className = 'edit-btn';
+        editBtn.textContent = 'editar';
+        editBtn.onclick = (e) => {
+          e.stopPropagation();
+          expandedTaskId = (expandedTaskId === task.id) ? null : task.id;
+          render();
+        };
+        li.appendChild(editBtn);
+
         const del = document.createElement('button');
         del.className = 'del';
         del.textContent = 'remover';
@@ -1284,6 +1261,7 @@ function render(){
         ul.appendChild(li);
 
         if(expandedTaskId === task.id){
+          ul.appendChild(buildRenamePanel(task));
           ul.appendChild(buildPastaPanel(task));
           if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
           if(task.meta) ul.appendChild(buildMetaPanel(task));
@@ -1295,16 +1273,52 @@ function render(){
     section.appendChild(ul);
     container.appendChild(section);
   });
-
-  if(editingTaskId){
-    const campoEdicao = document.querySelector('.task-edit-input');
-    if(campoEdicao){ campoEdicao.focus(); campoEdicao.select(); }
-  }
 }
 
 // Painel de progresso da meta (aparece quando a tarefa tem meta e está
 // expandida). É onde você atualiza o valor atual sem precisar mostrar
 // a tarefa na lista o tempo todo.
+function renomearTarefa(taskId, novoTexto){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const texto = novoTexto.trim();
+  if(texto) task.text = texto; // se apagar tudo, mantém o nome antigo em vez de ficar em branco
+  render();
+  salvarTarefa(task);
+}
+
+// Painel de renomear — primeira coisa que aparece ao clicar em "editar".
+function buildRenamePanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'nome:';
+  row.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = task.text;
+  input.maxLength = 120;
+  row.appendChild(input);
+
+  const salvarBtn = document.createElement('button');
+  salvarBtn.textContent = 'salvar';
+  salvarBtn.onclick = () => renomearTarefa(task.id, input.value);
+  row.appendChild(salvarBtn);
+
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter') renomearTarefa(task.id, input.value);
+  });
+
+  panel.appendChild(row);
+  return panel;
+}
+
 function moverTarefaParaPasta(taskId, novoNome){
   const task = tasks.find(t => t.id === taskId);
   if(!task) return;
