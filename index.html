@@ -526,6 +526,16 @@
     color: var(--ink-soft);
     text-decoration: line-through;
   }
+  .task-edit-input{
+    flex:1;
+    font-family: Georgia, serif;
+    font-size: 15.5px;
+    padding: 2px 6px;
+    border: 1px solid var(--ink);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--ink);
+  }
   .del{
     font-family: 'Courier New', monospace;
     font-size: 11px;
@@ -825,6 +835,7 @@ let tasks = [];
 let selectedFreq = 'daily';
 let diasSelecionados = new Set([0,1,2,3,4,5,6]); // formulário de nova tarefa: começa com todos os dias
 let expandedTaskId = null;
+let focarCampoDeNomeAoAbrir = false; // liga só no instante em que "editar" é clicado
 let selectedCategory = 'all';
 let currentMode = 'ambos';
 let isApplyingRemoteData = false; // evita salvar de volta enquanto só estamos recebendo dados
@@ -1012,6 +1023,61 @@ function atualizarMeta(taskId, novoValor){
   task.cycleKey = currentKey(task.freq);
   render();
   salvarTarefa(task);
+}
+
+function adicionarMeta(taskId, valorAlvo){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const alvo = Number(valorAlvo);
+  if(!(alvo > 0)) return; // precisa de um número válido maior que zero
+  task.meta = { alvo, atual: 0 };
+  task.cycleKey = currentKey(task.freq); // já entra sincronizada com o ciclo atual
+  render();
+  salvarTarefa(task);
+}
+
+function removerMeta(taskId){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const ok = window.confirm('Remover a meta desta tarefa? Ela deixa de ficar travada e pode ser concluída livremente.');
+  if(!ok) return;
+  task.meta = null;
+  render();
+  salvarTarefa(task);
+}
+
+// Painel pra ADICIONAR uma meta numa tarefa que ainda não tem uma.
+// Uma vez adicionada, o lugar dele é tomado pelo buildMetaPanel normal.
+function buildAddMetaPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'meta:';
+  row.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '0';
+  input.step = '0.01';
+  input.placeholder = 'valor alvo (ex: 8000)';
+  row.appendChild(input);
+
+  const addBtn = document.createElement('button');
+  addBtn.textContent = 'adicionar meta';
+  addBtn.onclick = () => adicionarMeta(task.id, input.value);
+  row.appendChild(addBtn);
+
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter') adicionarMeta(task.id, input.value);
+  });
+
+  panel.appendChild(row);
+  return panel;
 }
 
 const MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
@@ -1202,15 +1268,39 @@ function render(){
           const feitos = task.subtasks.filter(s => s.done).length;
           check.className = 'check pipeline-badge' + (done ? ' done' : '');
           check.textContent = feitos + '/' + task.subtasks.length;
+          // tarefa mãe não tem "marcar direto" — clicar nela já abre os
+          // mini-passos, sem precisar passar pelo botão "editar" antes
+          li.onclick = () => abrirOuFecharEdicao(false);
+          li.style.cursor = 'pointer';
         } else {
           check.className = 'check' + (done ? ' done' : '');
           check.textContent = done ? '✓' : '';
           check.onclick = (e) => { e.stopPropagation(); toggleTask(task.id); };
+          // clicar em qualquer parte do retângulo da tarefa também marca/desmarca —
+          // não só no quadradinho pequeno. Editar/mover/remover têm seu próprio
+          // stopPropagation, então continuam funcionando normalmente por cima disso.
+          li.onclick = () => toggleTask(task.id);
+          li.style.cursor = 'pointer';
         }
 
-        const textEl = document.createElement('span');
-        textEl.className = 'task-text' + (done ? ' done' : '');
-        textEl.textContent = task.text;
+        let textEl;
+        if(expandedTaskId === task.id){
+          textEl = document.createElement('input');
+          textEl.type = 'text';
+          textEl.className = 'task-edit-input';
+          textEl.value = task.text;
+          textEl.maxLength = 120;
+          textEl.onclick = (e) => e.stopPropagation();
+          textEl.addEventListener('blur', () => renomearTarefa(task.id, textEl.value));
+          textEl.addEventListener('keydown', (e) => {
+            if(e.key === 'Enter'){ e.preventDefault(); textEl.blur(); } // blur() já salva
+            if(e.key === 'Escape'){ expandedTaskId = null; render(); }
+          });
+        } else {
+          textEl = document.createElement('span');
+          textEl.className = 'task-text' + (done ? ' done' : '');
+          textEl.textContent = task.text;
+        }
 
         li.appendChild(check);
         li.appendChild(textEl);
@@ -1243,13 +1333,19 @@ function render(){
           li.appendChild(regimeTag);
         }
 
+        function abrirOuFecharEdicao(comFoco){
+          const estaAbrindo = expandedTaskId !== task.id;
+          expandedTaskId = estaAbrindo ? task.id : null;
+          if(estaAbrindo && comFoco) focarCampoDeNomeAoAbrir = true;
+          render();
+        }
+
         const editBtn = document.createElement('button');
         editBtn.className = 'edit-btn';
         editBtn.textContent = 'editar';
         editBtn.onclick = (e) => {
           e.stopPropagation();
-          expandedTaskId = (expandedTaskId === task.id) ? null : task.id;
-          render();
+          abrirOuFecharEdicao(true);
         };
         li.appendChild(editBtn);
 
@@ -1261,10 +1357,9 @@ function render(){
         ul.appendChild(li);
 
         if(expandedTaskId === task.id){
-          ul.appendChild(buildRenamePanel(task));
           ul.appendChild(buildPastaPanel(task));
           if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
-          if(task.meta) ul.appendChild(buildMetaPanel(task));
+          ul.appendChild(task.meta ? buildMetaPanel(task) : buildAddMetaPanel(task));
           ul.appendChild(buildSubtaskPanel(task));
         }
       });
@@ -1273,6 +1368,12 @@ function render(){
     section.appendChild(ul);
     container.appendChild(section);
   });
+
+  if(focarCampoDeNomeAoAbrir){
+    const campo = document.querySelector('.task-edit-input');
+    if(campo){ campo.focus(); campo.select(); }
+    focarCampoDeNomeAoAbrir = false;
+  }
 }
 
 // Painel de progresso da meta (aparece quando a tarefa tem meta e está
@@ -1285,38 +1386,6 @@ function renomearTarefa(taskId, novoTexto){
   if(texto) task.text = texto; // se apagar tudo, mantém o nome antigo em vez de ficar em branco
   render();
   salvarTarefa(task);
-}
-
-// Painel de renomear — primeira coisa que aparece ao clicar em "editar".
-function buildRenamePanel(task){
-  const panel = document.createElement('li');
-  panel.className = 'meta-panel';
-  panel.onclick = (e) => e.stopPropagation();
-
-  const row = document.createElement('div');
-  row.className = 'meta-panel-row';
-
-  const label = document.createElement('span');
-  label.textContent = 'nome:';
-  row.appendChild(label);
-
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.value = task.text;
-  input.maxLength = 120;
-  row.appendChild(input);
-
-  const salvarBtn = document.createElement('button');
-  salvarBtn.textContent = 'salvar';
-  salvarBtn.onclick = () => renomearTarefa(task.id, input.value);
-  row.appendChild(salvarBtn);
-
-  input.addEventListener('keydown', e => {
-    if(e.key === 'Enter') renomearTarefa(task.id, input.value);
-  });
-
-  panel.appendChild(row);
-  return panel;
 }
 
 function moverTarefaParaPasta(taskId, novoNome){
@@ -1430,6 +1499,11 @@ function buildMetaPanel(task){
   salvarBtn.textContent = 'salvar';
   salvarBtn.onclick = () => atualizarMeta(task.id, input.value);
   row.appendChild(salvarBtn);
+
+  const removerBtn = document.createElement('button');
+  removerBtn.textContent = 'remover meta';
+  removerBtn.onclick = () => removerMeta(task.id);
+  row.appendChild(removerBtn);
 
   input.addEventListener('keydown', e => {
     if(e.key === 'Enter') atualizarMeta(task.id, input.value);
