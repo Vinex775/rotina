@@ -391,7 +391,7 @@
     opacity: 0.6;
   }
 
-  li.meta-panel{
+  ul.tasks li.meta-panel{
     display:block;
     cursor: default;
     background: var(--bg);
@@ -558,6 +558,123 @@
   }
   .edit-btn:hover{ color: var(--ink); }
 
+  .pin-btn{
+    flex: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 4px;
+    opacity: 0.3;
+    filter: grayscale(1);
+  }
+  .pin-btn:hover{ opacity: 0.7; }
+  .pin-btn.active{
+    opacity: 1;
+    filter: none;
+  }
+
+  ul.tasks li.pinned-row{
+    background: var(--weekly-bg);
+  }
+
+  .tela-toggle{
+    display:flex;
+    gap: 6px;
+    margin-bottom: 22px;
+  }
+  .tela-btn{
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 10px 16px;
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    color: var(--ink-soft);
+    cursor: pointer;
+    border-radius: 3px;
+  }
+  .tela-btn.active{
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper);
+  }
+
+  .grade-header{
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--ink-soft);
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .slot-row{
+    display:flex;
+    border-bottom: 1px dashed var(--rule);
+    min-height: 46px;
+  }
+  .slot-hora{
+    flex: none;
+    width: 64px;
+    padding: 10px 10px 10px 0;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    text-align: right;
+    border-right: 1px solid var(--rule);
+  }
+  .slot-tarefas{
+    flex: 1;
+    padding: 6px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    justify-content: center;
+  }
+  .slot-vazio{
+    padding: 10px 12px;
+  }
+
+  .compromisso{
+    display:flex;
+    align-items:center;
+    gap: 10px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--daily);
+    border-radius: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .compromisso.done{
+    opacity: 0.55;
+  }
+  .compromisso.done .compromisso-texto{
+    text-decoration: line-through;
+  }
+  .compromisso-texto{
+    flex:1;
+    font-size: 14.5px;
+  }
+  .compromisso-tag{
+    flex: none;
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: var(--ink-soft);
+  }
+
+  .sem-horario-msg{
+    text-align:center;
+    color: var(--ink-soft);
+    font-style: italic;
+    font-size: 14px;
+    padding: 30px 10px;
+  }
+
   .move-btns{
     display:flex;
     flex-direction: column;
@@ -599,7 +716,7 @@
     font-size: 11px;
   }
 
-  li.subtask-panel{
+  ul.tasks li.subtask-panel{
     display: block;
     cursor: default;
     background: var(--bg);
@@ -608,7 +725,7 @@
   }
 
   @media (max-width: 480px){
-    li.subtask-panel{
+    ul.tasks li.subtask-panel{
       padding-left: 22px;
     }
   }
@@ -659,10 +776,22 @@
     font-size: 14px;
     overflow-wrap: break-word;
     word-break: break-word;
+    cursor: pointer;
   }
   .sub-text.done{
     color: var(--ink-soft);
     text-decoration: line-through;
+  }
+  .subtask-edit-input{
+    flex:1;
+    min-width: 0;
+    font-family: Georgia, serif;
+    font-size: 14px;
+    padding: 2px 6px;
+    border: 1px solid var(--ink);
+    border-radius: 3px;
+    background: #fff;
+    color: var(--ink);
   }
 
   .add-subtask-row{
@@ -728,6 +857,12 @@
     <button id="btnSair">Sair</button>
   </div>
 
+  <div class="tela-toggle" id="telaToggle">
+    <button class="tela-btn active" data-tela="lista">Lista de tarefas</button>
+    <button class="tela-btn" data-tela="grade">Grade Horária</button>
+  </div>
+
+  <div id="listaScreen">
   <div class="mode-bar" id="modeBar">
     <span class="mode-label">Modo atual:</span>
     <button class="mode-btn" data-mode="meio">Meio período</button>
@@ -785,6 +920,12 @@
   <div class="cat-bar" id="catBar"></div>
   <div id="groups"></div>
   <div class="loading" id="loadingMsg">carregando...</div>
+  </div>
+
+  <div id="gradeScreen" class="hidden">
+    <div class="grade-header" id="gradeHeader"></div>
+    <div id="gradeSlots"></div>
+  </div>
 </div>
 
 <script type="module">
@@ -837,6 +978,8 @@ let diasSelecionados = new Set([0,1,2,3,4,5,6]); // formulário de nova tarefa: 
 let expandedTaskId = null;
 let subtasksOpenId = null; // controla só a visibilidade dos mini-passos ao clicar na tarefa mãe (separado do "editar")
 let focarCampoDeNomeAoAbrir = false; // liga só no instante em que "editar" é clicado
+let editingSubtaskId = null; // qual mini-passo está com o texto em edição no momento
+let focarSubtaskAoEditar = false; // liga só no instante em que se clica pra editar um passo
 let selectedCategory = 'all';
 let currentMode = 'ambos';
 let isApplyingRemoteData = false; // evita salvar de volta enquanto só estamos recebendo dados
@@ -1107,6 +1250,7 @@ const GROUPS = [
 
 let viewMode = 'freq'; // 'freq' (padrão, por Diária/Semanal/...) ou 'pasta'
 let showBlocked = false; // tarefas travadas por meta ficam escondidas por padrão
+let telaAtual = 'lista'; // 'lista' (checklist de sempre) ou 'grade' (grade horária do dia)
 
 function getVisibleTasks(){
   const hoje = new Date().getDay();
@@ -1123,6 +1267,13 @@ function getVisibleTasks(){
 function getGroupsToRender(){
   const visivel = getVisibleTasks();
 
+  // tarefas fixadas (📌) sempre no topo do grupo delas — o sort é estável,
+  // então dentro de cada bloco (fixadas / não fixadas) a ordem de sempre
+  // (campo "ordem") continua sendo respeitada
+  function comFixadasNoTopo(lista){
+    return lista.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  }
+
   if(viewMode === 'pasta'){
     const nomesDePasta = Array.from(new Set(visivel.map(t => t.pasta || null)));
     nomesDePasta.sort((a, b) => {
@@ -1134,7 +1285,7 @@ function getGroupsToRender(){
       type: 'pasta',
       pastaName: nome, // null pra "Sem pasta"
       label: nome || 'Sem pasta',
-      tasksInGroup: visivel.filter(t => (t.pasta || null) === nome)
+      tasksInGroup: comFixadasNoTopo(visivel.filter(t => (t.pasta || null) === nome))
     }));
   }
 
@@ -1142,7 +1293,7 @@ function getGroupsToRender(){
     type: 'freq',
     freq: g.freq,
     label: g.label,
-    tasksInGroup: visivel.filter(t => t.freq === g.freq)
+    tasksInGroup: comFixadasNoTopo(visivel.filter(t => t.freq === g.freq))
   }));
 }
 
@@ -1169,6 +1320,116 @@ function desfazerPasta(nomePasta){
   afetadas.forEach(t => { t.pasta = null; });
   render();
   salvarVariasTarefas(afetadas, []);
+}
+
+// ---------- Grade Horária ----------
+// Mostra só o dia de hoje, mudando sozinha conforme a data passa.
+// Só entram aqui tarefas que tiverem um horário definido (via "editar").
+function renderGrade(){
+  const agora = new Date();
+  document.getElementById('gradeHeader').textContent =
+    WEEKDAYS[agora.getDay()] + ', ' + agora.getDate() + ' de ' + MONTHS[agora.getMonth()];
+
+  const hojeDiaSemana = agora.getDay();
+
+  const tarefasDoDia = tasks.filter(t => {
+    if(!t.horario) return false;                       // só entram as que têm horário marcado
+    if(t.meta && !metaAtingida(t)) return false;        // travada por meta não aparece
+    if(t.freq === 'daily') return diaEhAtivoParaTarefa(t, hojeDiaSemana);
+    return true; // semanal/mensal/única com horário: aparece todo dia até ser concluída
+  });
+
+  tarefasDoDia.sort((a, b) => a.horario.localeCompare(b.horario));
+
+  const container = document.getElementById('gradeSlots');
+  container.innerHTML = '';
+
+  if(tarefasDoDia.length === 0){
+    const msg = document.createElement('div');
+    msg.className = 'sem-horario-msg';
+    msg.textContent = 'Nenhuma tarefa com horário definido pra hoje. Adicione um horário clicando em "editar" numa tarefa, na Lista de tarefas.';
+    container.appendChild(msg);
+    return;
+  }
+
+  for(let hora = 0; hora < 24; hora++){
+    const tarefasNaHora = tarefasDoDia.filter(t => Number(t.horario.split(':')[0]) === hora);
+    if(tarefasNaHora.length === 0) continue; // pula hora vazia, não rola a página à toa
+
+    const row = document.createElement('div');
+    row.className = 'slot-row';
+
+    const horaEl = document.createElement('div');
+    horaEl.className = 'slot-hora';
+    horaEl.textContent = pad(hora) + ':00';
+    row.appendChild(horaEl);
+
+    const tarefasEl = document.createElement('div');
+    tarefasEl.className = 'slot-tarefas';
+
+    tarefasNaHora.forEach(t => {
+      const done = isDone(t);
+      const temPassosAqui = t.subtasks && t.subtasks.length > 0;
+
+      const item = document.createElement('div');
+      item.className = 'compromisso' + (done ? ' done' : '');
+      if(!temPassosAqui){
+        item.onclick = () => toggleTask(t.id);
+      }
+
+      const texto = document.createElement('span');
+      texto.className = 'compromisso-texto';
+      texto.textContent = t.horario + ' — ' + t.text;
+      item.appendChild(texto);
+
+      if(t.category && t.category !== 'Geral'){
+        const tag = document.createElement('span');
+        tag.className = 'compromisso-tag';
+        tag.textContent = t.category;
+        item.appendChild(tag);
+      }
+
+      tarefasEl.appendChild(item);
+    });
+
+    row.appendChild(tarefasEl);
+    container.appendChild(row);
+  }
+}
+
+function salvarHorario(taskId, valor){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  task.horario = valor || null; // campo vazio = remover horário
+  render();
+  if(telaAtual === 'grade') renderGrade();
+  salvarTarefa(task);
+}
+
+function buildHorarioPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'horário: ' + (task.horario || 'nenhum') + ' →';
+  row.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'time';
+  input.value = task.horario || '';
+  row.appendChild(input);
+
+  const salvarBtn = document.createElement('button');
+  salvarBtn.textContent = 'salvar';
+  salvarBtn.onclick = () => salvarHorario(task.id, input.value);
+  row.appendChild(salvarBtn);
+
+  panel.appendChild(row);
+  return panel;
 }
 
 function render(){
@@ -1237,6 +1498,7 @@ function render(){
         const classes = [];
         if(expandedTaskId === task.id) classes.push('expanded');
         if(task.missed && !done) classes.push('missed');
+        if(task.pinned) classes.push('pinned-row');
         const bloqueadaPorMeta = task.meta && !metaAtingida(task);
         if(bloqueadaPorMeta) classes.push('meta-bloqueada');
         li.className = classes.join(' ');
@@ -1345,6 +1607,13 @@ function render(){
           render();
         }
 
+        const pinBtn = document.createElement('button');
+        pinBtn.className = 'pin-btn' + (task.pinned ? ' active' : '');
+        pinBtn.textContent = '📌';
+        pinBtn.title = task.pinned ? 'Desafixar' : 'Fixar no topo';
+        pinBtn.onclick = (e) => { e.stopPropagation(); togglePin(task.id); };
+        li.appendChild(pinBtn);
+
         const editBtn = document.createElement('button');
         editBtn.className = 'edit-btn';
         editBtn.textContent = 'editar';
@@ -1363,6 +1632,7 @@ function render(){
 
         if(expandedTaskId === task.id){
           ul.appendChild(buildPastaPanel(task));
+          ul.appendChild(buildHorarioPanel(task));
           if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
           ul.appendChild(task.meta ? buildMetaPanel(task) : buildAddMetaPanel(task));
         }
@@ -1384,6 +1654,14 @@ function render(){
     if(campo){ campo.focus(); campo.select(); }
     focarCampoDeNomeAoAbrir = false;
   }
+
+  if(focarSubtaskAoEditar){
+    const campoSub = document.querySelector('.subtask-edit-input');
+    if(campoSub){ campoSub.focus(); campoSub.select(); }
+    focarSubtaskAoEditar = false;
+  }
+
+  if(telaAtual === 'grade') renderGrade();
 }
 
 // Painel de progresso da meta (aparece quando a tarefa tem meta e está
@@ -1570,14 +1848,40 @@ function buildSubtaskPanel(task){
         cb.onclick = () => toggleSubtask(task.id, sub.id);
       }
 
-      const label = document.createElement('span');
-      label.className = 'sub-text' + (sub.done ? ' done' : '');
-      label.textContent = sub.text;
-
       const delSub = document.createElement('button');
       delSub.className = 'del';
       delSub.textContent = 'x';
       delSub.onclick = () => deleteSubtask(task.id, sub.id);
+
+      const label = document.createElement('span');
+      if(editingSubtaskId === sub.id){
+        const inputEdicao = document.createElement('input');
+        inputEdicao.type = 'text';
+        inputEdicao.className = 'subtask-edit-input';
+        inputEdicao.value = sub.text;
+        inputEdicao.maxLength = 80;
+        inputEdicao.onclick = (e) => e.stopPropagation();
+        inputEdicao.addEventListener('blur', () => renomearSubtask(task.id, sub.id, inputEdicao.value));
+        inputEdicao.addEventListener('keydown', (e) => {
+          if(e.key === 'Enter'){ e.preventDefault(); inputEdicao.blur(); }
+          if(e.key === 'Escape'){ editingSubtaskId = null; render(); }
+        });
+        row.appendChild(cb);
+        row.appendChild(inputEdicao);
+        row.appendChild(delSub);
+        panel.appendChild(row);
+        return; // já montou essa linha em modo edição, pula o resto do loop
+      }
+      label.className = 'sub-text' + (sub.done ? ' done' : '');
+      label.textContent = sub.text;
+      if(!bloqueado){
+        label.onclick = (e) => {
+          e.stopPropagation();
+          editingSubtaskId = sub.id;
+          focarSubtaskAoEditar = true;
+          render();
+        };
+      }
 
       row.appendChild(cb);
       row.appendChild(label);
@@ -1764,6 +2068,14 @@ function pararDeEscutar(){
   if(unsubscribeTarefas){ unsubscribeTarefas(); unsubscribeTarefas = null; }
 }
 
+function togglePin(id){
+  const task = tasks.find(t => t.id === id);
+  if(!task) return;
+  task.pinned = !task.pinned;
+  render();
+  salvarTarefa(task);
+}
+
 function toggleTask(id){
   const task = tasks.find(t => t.id === id);
   if(!task) return;
@@ -1806,6 +2118,18 @@ function deleteSubtask(taskId, subId){
   const todosFeitos = task.subtasks.length > 0 && task.subtasks.every(s => s.done);
   task.doneKey = todosFeitos ? currentKey(task.freq) : null;
   if(isDone(task)) task.missed = false;
+  render();
+  salvarTarefa(task);
+}
+
+function renomearSubtask(taskId, subId, novoTexto){
+  const task = tasks.find(x => x.id === taskId);
+  if(!task || !task.subtasks) return;
+  const sub = task.subtasks.find(s => s.id === subId);
+  if(!sub) return;
+  const texto = novoTexto.trim();
+  if(texto) sub.text = texto; // se apagar tudo, mantém o texto antigo
+  editingSubtaskId = null;
   render();
   salvarTarefa(task);
 }
@@ -2003,6 +2327,16 @@ document.getElementById('metaBar').addEventListener('click', e => {
   if(!btn) return;
   showBlocked = btn.dataset.showblocked === 'true';
   render(); // isso também é só visual, local a este dispositivo
+});
+
+document.getElementById('telaToggle').addEventListener('click', e => {
+  const btn = e.target.closest('.tela-btn');
+  if(!btn) return;
+  telaAtual = btn.dataset.tela;
+  document.querySelectorAll('.tela-btn').forEach(b => b.classList.toggle('active', b.dataset.tela === telaAtual));
+  document.getElementById('listaScreen').classList.toggle('hidden', telaAtual !== 'lista');
+  document.getElementById('gradeScreen').classList.toggle('hidden', telaAtual !== 'grade');
+  if(telaAtual === 'grade') renderGrade();
 });
 
 setInterval(() => {
