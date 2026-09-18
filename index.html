@@ -612,31 +612,8 @@
     border-bottom: 2px solid var(--ink);
   }
 
-  .slot-row{
-    display:flex;
-    border-bottom: 1px dashed var(--rule);
-    min-height: 46px;
-  }
-  .slot-hora{
-    flex: none;
-    width: 64px;
-    padding: 10px 10px 10px 0;
-    font-family: 'Courier New', monospace;
-    font-size: 12px;
-    color: var(--ink-soft);
-    text-align: right;
-    border-right: 1px solid var(--rule);
-  }
-  .slot-tarefas{
-    flex: 1;
-    padding: 6px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    justify-content: center;
-  }
-  .slot-vazio{
-    padding: 10px 12px;
+  .bloco-wrap{
+    margin-bottom: 8px;
   }
 
   .compromisso{
@@ -647,14 +624,20 @@
     border: 1px solid var(--rule);
     border-left: 3px solid var(--daily);
     border-radius: 4px;
-    padding: 6px 10px;
-    cursor: pointer;
+    padding: 8px 10px;
   }
   .compromisso.done{
     opacity: 0.55;
   }
   .compromisso.done .compromisso-texto{
     text-decoration: line-through;
+  }
+  .bloco-hora{
+    flex: none;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    width: 100px;
   }
   .compromisso-texto{
     flex:1;
@@ -665,6 +648,56 @@
     font-family: 'Courier New', monospace;
     font-size: 10px;
     color: var(--ink-soft);
+  }
+
+  .bloco-form{
+    display:flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items:center;
+    background: var(--bg);
+    border: 1px dashed var(--rule);
+    border-radius: 4px;
+    padding: 10px;
+    margin-top: 4px;
+  }
+  .bloco-form input[type=time]{
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+  }
+  .bloco-form input[type=text]{
+    flex: 1 1 180px;
+    font-family: Georgia, serif;
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+  }
+  .bloco-form select{
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    max-width: 160px;
+  }
+  .bloco-form button{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    padding: 7px 12px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .bloco-form-novo{
+    background: var(--paper);
+    border-style: solid;
+    margin-top: 16px;
   }
 
   .sem-horario-msg{
@@ -923,6 +956,15 @@
   </div>
 
   <div id="gradeScreen" class="hidden">
+    <div class="day-picker" id="diaSeletor">
+      <button class="day-btn" data-day="0">D</button>
+      <button class="day-btn" data-day="1">S</button>
+      <button class="day-btn" data-day="2">T</button>
+      <button class="day-btn" data-day="3">Q</button>
+      <button class="day-btn" data-day="4">Q</button>
+      <button class="day-btn" data-day="5">S</button>
+      <button class="day-btn" data-day="6">S</button>
+    </div>
     <div class="grade-header" id="gradeHeader"></div>
     <div id="gradeSlots"></div>
   </div>
@@ -970,6 +1012,7 @@ const db = initializeFirestore(app, {
 let currentUser = null;
 let unsubscribeModo = null;    // pra parar de "escutar" o documento de modo no logout
 let unsubscribeTarefas = null; // pra parar de "escutar" a coleção de tarefas no logout
+let unsubscribeBlocos = null; // pra parar de "escutar" a coleção de blocos da grade no logout
 
 // ---------- Estado do app (igual antes) ----------
 let tasks = [];
@@ -1251,6 +1294,9 @@ const GROUPS = [
 let viewMode = 'freq'; // 'freq' (padrão, por Diária/Semanal/...) ou 'pasta'
 let showBlocked = false; // tarefas travadas por meta ficam escondidas por padrão
 let telaAtual = 'lista'; // 'lista' (checklist de sempre) ou 'grade' (grade horária do dia)
+let blocos = []; // blocos da Grade Horária, um por dia da semana
+let diaGradeSelecionado = new Date().getDay(); // qual dia da semana está sendo visualizado na Grade
+let blocoEditandoId = null; // qual bloco está com o formulário de edição aberto
 
 function getVisibleTasks(){
   const hoje = new Date().getDay();
@@ -1322,114 +1368,213 @@ function desfazerPasta(nomePasta){
   salvarVariasTarefas(afetadas, []);
 }
 
-// ---------- Grade Horária ----------
-// Mostra só o dia de hoje, mudando sozinha conforme a data passa.
-// Só entram aqui tarefas que tiverem um horário definido (via "editar").
-function renderGrade(){
-  const agora = new Date();
-  document.getElementById('gradeHeader').textContent =
-    WEEKDAYS[agora.getDay()] + ', ' + agora.getDate() + ' de ' + MONTHS[agora.getMonth()];
+// ---------- Grade Horária (blocos por dia da semana) ----------
+// Diferente da Lista de tarefas, isso é uma grade FIXA (tipo uma grade
+// escolar): cada bloco pertence a um dia da semana específico (0=domingo
+// ... 6=sábado) e tem hora de início/fim. Um bloco pode estar "vinculado"
+// a uma tarefa de verdade do checklist (mostra checkbox, clica marca) ou
+// ser só um rótulo informativo (ex: "Transporte", "Descanso") sem vínculo
+// nenhum com o checklist.
 
-  const hojeDiaSemana = agora.getDay();
-
-  const tarefasDoDia = tasks.filter(t => {
-    if(!t.horario) return false;                       // só entram as que têm horário marcado
-    if(t.meta && !metaAtingida(t)) return false;        // travada por meta não aparece
-    if(t.freq === 'daily') return diaEhAtivoParaTarefa(t, hojeDiaSemana);
-    return true; // semanal/mensal/única com horário: aparece todo dia até ser concluída
+function renderDiaSeletor(){
+  document.querySelectorAll('#diaSeletor .day-btn').forEach(b => {
+    b.classList.toggle('active', Number(b.dataset.day) === diaGradeSelecionado);
   });
+}
 
-  tarefasDoDia.sort((a, b) => a.horario.localeCompare(b.horario));
+function renderGrade(){
+  renderDiaSeletor();
+
+  const nomeDia = WEEKDAYS[diaGradeSelecionado];
+  document.getElementById('gradeHeader').textContent = nomeDia.charAt(0).toUpperCase() + nomeDia.slice(1);
+
+  const blocosDoDia = blocos
+    .filter(b => b.dia === diaGradeSelecionado)
+    .slice()
+    .sort((a, b) => a.inicio.localeCompare(b.inicio));
 
   const container = document.getElementById('gradeSlots');
   container.innerHTML = '';
 
-  if(tarefasDoDia.length === 0){
+  if(blocosDoDia.length === 0){
     const msg = document.createElement('div');
     msg.className = 'sem-horario-msg';
-    msg.textContent = 'Nenhuma tarefa com horário definido pra hoje. Adicione um horário clicando em "editar" numa tarefa, na Lista de tarefas.';
+    msg.textContent = 'Nenhum bloco cadastrado pra esse dia ainda. Use o formulário abaixo pra adicionar.';
     container.appendChild(msg);
-    return;
-  }
-
-  for(let hora = 0; hora < 24; hora++){
-    const tarefasNaHora = tarefasDoDia.filter(t => Number(t.horario.split(':')[0]) === hora);
-    if(tarefasNaHora.length === 0) continue; // pula hora vazia, não rola a página à toa
-
-    const row = document.createElement('div');
-    row.className = 'slot-row';
-
-    const horaEl = document.createElement('div');
-    horaEl.className = 'slot-hora';
-    horaEl.textContent = pad(hora) + ':00';
-    row.appendChild(horaEl);
-
-    const tarefasEl = document.createElement('div');
-    tarefasEl.className = 'slot-tarefas';
-
-    tarefasNaHora.forEach(t => {
-      const done = isDone(t);
-      const temPassosAqui = t.subtasks && t.subtasks.length > 0;
-
-      const item = document.createElement('div');
-      item.className = 'compromisso' + (done ? ' done' : '');
-      if(!temPassosAqui){
-        item.onclick = () => toggleTask(t.id);
-      }
-
-      const texto = document.createElement('span');
-      texto.className = 'compromisso-texto';
-      texto.textContent = t.horario + ' — ' + t.text;
-      item.appendChild(texto);
-
-      if(t.category && t.category !== 'Geral'){
-        const tag = document.createElement('span');
-        tag.className = 'compromisso-tag';
-        tag.textContent = t.category;
-        item.appendChild(tag);
-      }
-
-      tarefasEl.appendChild(item);
+  } else {
+    blocosDoDia.forEach(bloco => {
+      container.appendChild(buildBlocoRow(bloco));
     });
-
-    row.appendChild(tarefasEl);
-    container.appendChild(row);
   }
+
+  container.appendChild(buildAddBlocoForm());
 }
 
-function salvarHorario(taskId, valor){
-  const task = tasks.find(t => t.id === taskId);
-  if(!task) return;
-  task.horario = valor || null; // campo vazio = remover horário
-  render();
-  if(telaAtual === 'grade') renderGrade();
-  salvarTarefa(task);
-}
+function buildBlocoRow(bloco){
+  const tarefaVinculada = bloco.taskId ? tasks.find(t => t.id === bloco.taskId) : null;
+  const done = tarefaVinculada ? isDone(tarefaVinculada) : false;
 
-function buildHorarioPanel(task){
-  const panel = document.createElement('li');
-  panel.className = 'meta-panel';
-  panel.onclick = (e) => e.stopPropagation();
+  const wrap = document.createElement('div');
+  wrap.className = 'bloco-wrap';
 
   const row = document.createElement('div');
-  row.className = 'meta-panel-row';
+  row.className = 'compromisso' + (done ? ' done' : '');
 
-  const label = document.createElement('span');
-  label.textContent = 'horário: ' + (task.horario || 'nenhum') + ' →';
-  row.appendChild(label);
+  if(tarefaVinculada){
+    const temPassos = tarefaVinculada.subtasks && tarefaVinculada.subtasks.length > 0;
+    const bloqueada = tarefaVinculada.meta && !metaAtingida(tarefaVinculada);
+    if(!temPassos && !bloqueada){
+      row.onclick = () => toggleTask(tarefaVinculada.id);
+      row.style.cursor = 'pointer';
+    }
+  }
 
-  const input = document.createElement('input');
-  input.type = 'time';
-  input.value = task.horario || '';
-  row.appendChild(input);
+  const horaEl = document.createElement('span');
+  horaEl.className = 'bloco-hora';
+  horaEl.textContent = bloco.inicio + '–' + bloco.fim;
+  row.appendChild(horaEl);
+
+  const texto = document.createElement('span');
+  texto.className = 'compromisso-texto';
+  texto.textContent = bloco.texto;
+  row.appendChild(texto);
+
+  if(tarefaVinculada){
+    const tag = document.createElement('span');
+    tag.className = 'compromisso-tag';
+    tag.textContent = '✓ vinculado';
+    row.appendChild(tag);
+  }
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'edit-btn';
+  editBtn.textContent = 'editar';
+  editBtn.onclick = (e) => {
+    e.stopPropagation();
+    blocoEditandoId = (blocoEditandoId === bloco.id) ? null : bloco.id;
+    renderGrade();
+  };
+  row.appendChild(editBtn);
+
+  wrap.appendChild(row);
+
+  if(blocoEditandoId === bloco.id){
+    wrap.appendChild(buildEditarBlocoForm(bloco));
+  }
+
+  return wrap;
+}
+
+function buildEditarBlocoForm(bloco){
+  const form = document.createElement('div');
+  form.className = 'bloco-form';
+
+  const inicioInput = document.createElement('input');
+  inicioInput.type = 'time';
+  inicioInput.value = bloco.inicio;
+
+  const fimInput = document.createElement('input');
+  fimInput.type = 'time';
+  fimInput.value = bloco.fim;
+
+  const textoInput = document.createElement('input');
+  textoInput.type = 'text';
+  textoInput.value = bloco.texto;
+  textoInput.maxLength = 80;
+  textoInput.placeholder = 'descrição do bloco';
+
+  const vinculoSelect = criarSeletorDeTarefa(bloco.taskId);
 
   const salvarBtn = document.createElement('button');
   salvarBtn.textContent = 'salvar';
-  salvarBtn.onclick = () => salvarHorario(task.id, input.value);
-  row.appendChild(salvarBtn);
+  salvarBtn.onclick = () => {
+    salvarBloco({
+      ...bloco,
+      inicio: inicioInput.value,
+      fim: fimInput.value,
+      texto: textoInput.value.trim() || bloco.texto,
+      taskId: vinculoSelect.value || null
+    });
+    blocoEditandoId = null;
+  };
 
-  panel.appendChild(row);
-  return panel;
+  const removerBtn = document.createElement('button');
+  removerBtn.textContent = 'remover bloco';
+  removerBtn.onclick = () => {
+    apagarBlocoDoc(bloco.id);
+    blocos = blocos.filter(b => b.id !== bloco.id);
+    blocoEditandoId = null;
+    renderGrade();
+  };
+
+  form.appendChild(inicioInput);
+  form.appendChild(fimInput);
+  form.appendChild(textoInput);
+  form.appendChild(vinculoSelect);
+  form.appendChild(salvarBtn);
+  form.appendChild(removerBtn);
+  return form;
+}
+
+// Select reaproveitado tanto pra criar quanto pra editar um bloco —
+// lista todas as tarefas atuais, pra você escolher vincular ou não.
+function criarSeletorDeTarefa(taskIdSelecionado){
+  const select = document.createElement('select');
+  const optionVazia = document.createElement('option');
+  optionVazia.value = '';
+  optionVazia.textContent = 'sem tarefa vinculada';
+  select.appendChild(optionVazia);
+
+  tasks.slice().sort((a, b) => a.text.localeCompare(b.text, 'pt-BR')).forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.text;
+    if(t.id === taskIdSelecionado) opt.selected = true;
+    select.appendChild(opt);
+  });
+  return select;
+}
+
+function buildAddBlocoForm(){
+  const form = document.createElement('div');
+  form.className = 'bloco-form bloco-form-novo';
+
+  const inicioInput = document.createElement('input');
+  inicioInput.type = 'time';
+
+  const fimInput = document.createElement('input');
+  fimInput.type = 'time';
+
+  const textoInput = document.createElement('input');
+  textoInput.type = 'text';
+  textoInput.maxLength = 80;
+  textoInput.placeholder = 'descrição do bloco (ex: Academia, Relatório...)';
+
+  const vinculoSelect = criarSeletorDeTarefa(null);
+
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+ adicionar bloco';
+  addBtn.onclick = () => {
+    const texto = textoInput.value.trim();
+    if(!texto || !inicioInput.value || !fimInput.value) return;
+    adicionarBloco({
+      dia: diaGradeSelecionado,
+      inicio: inicioInput.value,
+      fim: fimInput.value,
+      texto: texto,
+      taskId: vinculoSelect.value || null
+    });
+    textoInput.value = '';
+    inicioInput.value = '';
+    fimInput.value = '';
+  };
+
+  form.appendChild(inicioInput);
+  form.appendChild(fimInput);
+  form.appendChild(textoInput);
+  form.appendChild(vinculoSelect);
+  form.appendChild(addBtn);
+  return form;
 }
 
 function render(){
@@ -1632,7 +1777,6 @@ function render(){
 
         if(expandedTaskId === task.id){
           ul.appendChild(buildPastaPanel(task));
-          ul.appendChild(buildHorarioPanel(task));
           if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
           ul.appendChild(task.meta ? buildMetaPanel(task) : buildAddMetaPanel(task));
         }
@@ -1929,8 +2073,37 @@ function tarefasColRef(){
   return collection(db, 'usuarios', currentUser.uid, 'tarefas');
 }
 
+function blocosColRef(){
+  return collection(db, 'usuarios', currentUser.uid, 'blocos');
+}
+
 function usuarioDocRef(){
   return doc(db, 'usuarios', currentUser.uid);
+}
+
+async function salvarBloco(bloco){
+  if(!currentUser) return;
+  try{
+    await setDoc(doc(blocosColRef(), bloco.id), bloco);
+  }catch(e){
+    console.error('Falha ao salvar bloco', e);
+  }
+}
+
+function adicionarBloco(dadosBloco){
+  const bloco = { id: 'b' + Date.now() + Math.random().toString(36).slice(2,6), ...dadosBloco };
+  blocos.push(bloco);
+  renderGrade();
+  salvarBloco(bloco);
+}
+
+async function apagarBlocoDoc(blocoId){
+  if(!currentUser) return;
+  try{
+    await deleteDoc(doc(blocosColRef(), blocoId));
+  }catch(e){
+    console.error('Falha ao apagar bloco', e);
+  }
 }
 
 async function salvarTarefa(task){
@@ -2052,6 +2225,13 @@ function comecarAEscutarDados(){
     console.error('Erro ao escutar tarefas', err);
     document.getElementById('syncStatus').textContent = 'sem conexão';
   });
+
+  unsubscribeBlocos = onSnapshot(blocosColRef(), (snap) => {
+    blocos = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+    if(telaAtual === 'grade') renderGrade();
+  }, (err) => {
+    console.error('Erro ao escutar blocos da grade', err);
+  });
 }
 
 // Se você tentar fechar/recarregar a aba enquanto ainda existe alteração
@@ -2066,6 +2246,7 @@ window.addEventListener('beforeunload', (e) => {
 function pararDeEscutar(){
   if(unsubscribeModo){ unsubscribeModo(); unsubscribeModo = null; }
   if(unsubscribeTarefas){ unsubscribeTarefas(); unsubscribeTarefas = null; }
+  if(unsubscribeBlocos){ unsubscribeBlocos(); unsubscribeBlocos = null; }
 }
 
 function togglePin(id){
@@ -2337,6 +2518,14 @@ document.getElementById('telaToggle').addEventListener('click', e => {
   document.getElementById('listaScreen').classList.toggle('hidden', telaAtual !== 'lista');
   document.getElementById('gradeScreen').classList.toggle('hidden', telaAtual !== 'grade');
   if(telaAtual === 'grade') renderGrade();
+});
+
+document.getElementById('diaSeletor').addEventListener('click', e => {
+  const btn = e.target.closest('.day-btn');
+  if(!btn) return;
+  diaGradeSelecionado = Number(btn.dataset.day);
+  blocoEditandoId = null; // fecha qualquer edição aberta ao trocar de dia
+  renderGrade();
 });
 
 setInterval(() => {
