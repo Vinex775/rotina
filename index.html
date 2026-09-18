@@ -305,6 +305,46 @@
     border-radius: 10px;
   }
 
+  .task-tags{
+    display:flex;
+    align-items:center;
+    gap: 6px;
+    flex: none;
+  }
+  .task-actions{
+    display:flex;
+    align-items:center;
+    gap: 10px;
+    flex: none;
+  }
+
+  /* No celular, a linha da tarefa não tem largura pra manter tudo numa
+     fileira só (nome + etiquetas + editar/remover) sem estourar o
+     quadrado. Em vez de deixar vazar, a linha passa a quebrar: nome
+     fica na primeira fileira (com espaço garantido pra respirar),
+     etiquetas na segunda, editar/remover numa terceira, alinhados à
+     direita. */
+  @media (max-width: 600px){
+    ul.tasks li{
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+    .task-text, .task-edit-input{
+      min-width: 0;
+      flex: 1 1 60%;
+    }
+    .task-tags{
+      flex-basis: 100%;
+      flex-wrap: wrap;
+      order: 3;
+    }
+    .task-actions{
+      flex-basis: 100%;
+      justify-content: flex-end;
+      order: 4;
+    }
+  }
+
   .day-toggle-panel{
     display:flex;
     gap: 4px;
@@ -1717,33 +1757,38 @@ function render(){
         li.appendChild(check);
         li.appendChild(textEl);
 
+        const tagsWrap = document.createElement('div');
+        tagsWrap.className = 'task-tags';
+
         if(selectedCategory === 'all'){
           const catTag = document.createElement('span');
           catTag.className = 'task-cat';
           catTag.textContent = task.category || 'Geral';
-          li.appendChild(catTag);
+          tagsWrap.appendChild(catTag);
         }
 
         if(task.pasta && viewMode === 'freq'){
           const pastaTag = document.createElement('span');
           pastaTag.className = 'task-pasta';
           pastaTag.textContent = task.pasta;
-          li.appendChild(pastaTag);
+          tagsWrap.appendChild(pastaTag);
         }
 
         if(task.diasAtivos){
           const diasTag = document.createElement('span');
           diasTag.className = 'task-dias';
           diasTag.textContent = task.diasAtivos.map(d => 'DSTQQSS'[d]).join(' ');
-          li.appendChild(diasTag);
+          tagsWrap.appendChild(diasTag);
         }
 
         if(task.regime){
           const regimeTag = document.createElement('span');
           regimeTag.className = 'task-regime';
           regimeTag.textContent = task.regime === 'integral' ? 'Integral' : 'Meio período';
-          li.appendChild(regimeTag);
+          tagsWrap.appendChild(regimeTag);
         }
+
+        if(tagsWrap.children.length > 0) li.appendChild(tagsWrap);
 
         function abrirOuFecharEdicao(comFoco){
           const estaAbrindo = expandedTaskId !== task.id;
@@ -1752,12 +1797,15 @@ function render(){
           render();
         }
 
+        const actionsWrap = document.createElement('div');
+        actionsWrap.className = 'task-actions';
+
         const pinBtn = document.createElement('button');
         pinBtn.className = 'pin-btn' + (task.pinned ? ' active' : '');
         pinBtn.textContent = '📌';
         pinBtn.title = task.pinned ? 'Desafixar' : 'Fixar no topo';
         pinBtn.onclick = (e) => { e.stopPropagation(); togglePin(task.id); };
-        li.appendChild(pinBtn);
+        actionsWrap.appendChild(pinBtn);
 
         const editBtn = document.createElement('button');
         editBtn.className = 'edit-btn';
@@ -1766,13 +1814,15 @@ function render(){
           e.stopPropagation();
           abrirOuFecharEdicao(true);
         };
-        li.appendChild(editBtn);
+        actionsWrap.appendChild(editBtn);
 
         const del = document.createElement('button');
         del.className = 'del';
         del.textContent = 'remover';
         del.onclick = (e) => { e.stopPropagation(); deleteTask(task.id); };
-        li.appendChild(del);
+        actionsWrap.appendChild(del);
+
+        li.appendChild(actionsWrap);
         ul.appendChild(li);
 
         if(expandedTaskId === task.id){
@@ -1784,7 +1834,7 @@ function render(){
         // direto na tarefa mãe — mas os dois não duplicam o painel se os dois
         // estiverem "abertos" ao mesmo tempo por acaso
         if(expandedTaskId === task.id || subtasksOpenId === task.id){
-          ul.appendChild(buildSubtaskPanel(task));
+          ul.appendChild(buildSubtaskPanel(task, expandedTaskId === task.id));
         }
       });
     }
@@ -1957,7 +2007,7 @@ function buildMetaPanel(task){
 // Painel de mini-passos (aparece só quando a tarefa está expandida).
 // É uma <li> separada, de bloco inteiro, em vez de ficar espremida na
 // linha de flex da tarefa.
-function buildSubtaskPanel(task){
+function buildSubtaskPanel(task, modoEdicaoCompleta){
   const panel = document.createElement('li');
   panel.className = 'subtask-panel';
   panel.onclick = (e) => e.stopPropagation(); // clicar aqui dentro não deve fechar o painel
@@ -1998,7 +2048,7 @@ function buildSubtaskPanel(task){
       delSub.onclick = () => deleteSubtask(task.id, sub.id);
 
       const label = document.createElement('span');
-      if(editingSubtaskId === sub.id){
+      if(modoEdicaoCompleta && editingSubtaskId === sub.id){
         const inputEdicao = document.createElement('input');
         inputEdicao.type = 'text';
         inputEdicao.className = 'subtask-edit-input';
@@ -2018,13 +2068,15 @@ function buildSubtaskPanel(task){
       }
       label.className = 'sub-text' + (sub.done ? ' done' : '');
       label.textContent = sub.text;
-      if(!bloqueado){
+      if(!bloqueado && modoEdicaoCompleta){
         label.onclick = (e) => {
           e.stopPropagation();
           editingSubtaskId = sub.id;
           focarSubtaskAoEditar = true;
           render();
         };
+      } else {
+        label.style.cursor = 'default';
       }
 
       row.appendChild(cb);
