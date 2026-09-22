@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+F<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -927,6 +927,7 @@
   <div class="account-bar">
     <span id="accountEmail"></span>
     <span class="sync-status" id="syncStatus"></span>
+    <button id="btnAtivarNotificacoes">🔔 Notificações</button>
     <button id="btnSair">Sair</button>
   </div>
 
@@ -1023,8 +1024,13 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, setDoc, getDoc, deleteDoc, collection, writeBatch, onSnapshot
+  doc, setDoc, getDoc, deleteDoc, collection, writeBatch, onSnapshot,
+  updateDoc, arrayUnion
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
+// Novo: Firebase Messaging, pra pedir permissão e gerar o token de notificação
+import {
+  getMessaging, getToken
+} from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-messaging.js';
 
 // Sua configuração do projeto Firebase (identifica o projeto, não é secreta)
 const firebaseConfig = {
@@ -1048,6 +1054,47 @@ const auth = getAuth(app);
 const db = initializeFirestore(app, {
   localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
 });
+
+// ---------- Notificações push ----------
+// Chave gerada em: Firebase Console > Configurações do projeto > Cloud
+// Messaging > "Web Push certificates" > Generate key pair. Sem ela, o
+// getToken() abaixo não funciona.
+const VAPID_KEY = "BBrcXdHGipIRtVJhkUuNwglGHDvcSGA8KnwYbXKIcQb8bHvotwJcQEFuqhB9emq-W1YDjJPiOK6AGoRpVH4P8tQ";
+const messaging = getMessaging(app);
+
+// O service worker precisa estar registrado pra notificação funcionar mesmo
+// com o Rotina fechado. Caminho relativo pra funcionar tanto num domínio
+// próprio quanto num projeto do GitHub Pages (usuario.github.io/repo/).
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./firebase-messaging-sw.js').catch((e) => {
+    console.error('Falha ao registrar o service worker de notificações', e);
+  });
+}
+
+async function ativarNotificacoes() {
+  if (!currentUser) return;
+
+  const permissao = await Notification.requestPermission();
+  if (permissao !== 'granted') {
+    alert('Notificações não foram permitidas pelo navegador.');
+    return;
+  }
+
+  try {
+    const token = await getToken(messaging, { vapidKey: VAPID_KEY });
+    if (!token) {
+      alert('Não foi possível gerar o token de notificação.');
+      return;
+    }
+    await updateDoc(doc(db, 'usuarios', currentUser.uid), {
+      tokensNotificacao: arrayUnion(token)
+    });
+    alert('Notificações ativadas com sucesso!');
+  } catch (e) {
+    console.error('Falha ao ativar notificações', e);
+    alert('Algo deu errado ao ativar as notificações. Veja o console para detalhes.');
+  }
+}
 
 let currentUser = null;
 let unsubscribeModo = null;    // pra parar de "escutar" o documento de modo no logout
@@ -2038,14 +2085,18 @@ function buildSubtaskPanel(task, modoEdicaoCompleta){
       const cb = document.createElement('div');
       cb.className = 'sub-check' + (sub.done ? ' done' : '');
       cb.textContent = sub.done ? '✓' : '';
-      if(!bloqueado){
-        cb.onclick = () => toggleSubtask(task.id, sub.id);
-      }
 
       const delSub = document.createElement('button');
       delSub.className = 'del';
       delSub.textContent = 'x';
-      delSub.onclick = () => deleteSubtask(task.id, sub.id);
+      delSub.onclick = (e) => { e.stopPropagation(); deleteSubtask(task.id, sub.id); };
+
+      if(!bloqueado){
+        // clicar em qualquer parte da linha marca/desmarca — não só no
+        // quadradinho — igual já funciona nas tarefas mãe
+        row.onclick = () => toggleSubtask(task.id, sub.id);
+        row.style.cursor = 'pointer';
+      }
 
       const label = document.createElement('span');
       if(modoEdicaoCompleta && editingSubtaskId === sub.id){
@@ -2068,41 +2119,49 @@ function buildSubtaskPanel(task, modoEdicaoCompleta){
       }
       label.className = 'sub-text' + (sub.done ? ' done' : '');
       label.textContent = sub.text;
-      if(!bloqueado && modoEdicaoCompleta){
-        label.onclick = (e) => {
+      if(bloqueado) label.style.cursor = 'default';
+
+      row.appendChild(cb);
+      row.appendChild(label);
+
+      if(modoEdicaoCompleta){
+        // renomear virou um botão próprio, já que clicar na linha agora marca/desmarca
+        const editSubBtn = document.createElement('button');
+        editSubBtn.className = 'edit-btn';
+        editSubBtn.textContent = 'editar';
+        editSubBtn.onclick = (e) => {
           e.stopPropagation();
           editingSubtaskId = sub.id;
           focarSubtaskAoEditar = true;
           render();
         };
-      } else {
-        label.style.cursor = 'default';
+        row.appendChild(editSubBtn);
       }
 
-      row.appendChild(cb);
-      row.appendChild(label);
       row.appendChild(delSub);
       panel.appendChild(row);
     });
   }
 
-  const addRow = document.createElement('div');
-  addRow.className = 'add-subtask-row';
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.placeholder = 'Novo passo...';
-  input.maxLength = 80;
-  const addBtn = document.createElement('button');
-  addBtn.textContent = '+';
-  const submeter = () => {
-    addSubtask(task.id, input.value);
-    input.value = '';
-  };
-  addBtn.onclick = submeter;
-  input.addEventListener('keydown', e => { if(e.key === 'Enter') submeter(); });
-  addRow.appendChild(input);
-  addRow.appendChild(addBtn);
-  panel.appendChild(addRow);
+  if(modoEdicaoCompleta){
+    const addRow = document.createElement('div');
+    addRow.className = 'add-subtask-row';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Novo passo...';
+    input.maxLength = 80;
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+';
+    const submeter = () => {
+      addSubtask(task.id, input.value);
+      input.value = '';
+    };
+    addBtn.onclick = submeter;
+    input.addEventListener('keydown', e => { if(e.key === 'Enter') submeter(); });
+    addRow.appendChild(input);
+    addRow.appendChild(addBtn);
+    panel.appendChild(addRow);
+  }
 
   return panel;
 }
@@ -2633,6 +2692,8 @@ document.getElementById('btnSair').onclick = async () => {
   pararDeEscutar();
   await signOut(auth);
 };
+
+document.getElementById('btnAtivarNotificacoes').onclick = ativarNotificacoes;
 
 onAuthStateChanged(auth, async (user) => {
   currentUser = user;
