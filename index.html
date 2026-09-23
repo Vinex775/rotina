@@ -1,3 +1,4 @@
+<!-- Rotina — versão 7.0 -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -126,12 +127,20 @@
   }
   .account-bar{
     display:flex;
+    flex-wrap: wrap;
     align-items:center;
     justify-content: space-between;
+    gap: 6px 10px;
     font-family: 'Courier New', monospace;
     font-size: 11px;
     color: var(--ink-soft);
     margin-bottom: 14px;
+  }
+  #accountEmail{
+    flex: 1 1 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .account-bar button{
     font-family: 'Courier New', monospace;
@@ -144,10 +153,20 @@
     cursor: pointer;
     border-radius: 3px;
     color: var(--ink-soft);
+    white-space: nowrap;
   }
   .account-bar button:hover{ color: var(--margin); border-color: var(--margin); }
   .sync-status{
     font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  @media (max-width: 480px){
+    .account-bar{ font-size: 10px; }
+    .account-bar button{ font-size: 10px; padding: 3px 7px; }
   }
 
   .add-box{
