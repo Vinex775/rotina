@@ -973,3 +973,61 @@
   }
 
   .hidden{ display:none !important; }
+
+  .cal-cell{ cursor: pointer; }
+  .cal-cell.empty{ cursor: default; }
+  .cal-evento{ cursor: pointer; }
+
+  .cal-form{
+    margin-top: 14px;
+    padding: 14px;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--bg);
+  }
+  .cal-form-row{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+  }
+  .cal-form-row input[type="text"],
+  .cal-form-row input[type="date"],
+  .cal-form-row input[type="time"],
+  .cal-form-row select{
+    font-family: Georgia, serif;
+    font-size: 14px;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    border-radius: 3px;
+  }
+  .cal-form-row input[type="text"]{ flex: 1 1 200px; }
+  .cal-form-actions{
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .cal-form-actions button{
+    font-family: 'Courier New', monospace;
+    padding: 6px 12px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .cal-form-actions button.cal-apagar{
+    background: var(--paper);
+    color: var(--ink);
+    border-color: var(--rule);
+  }
+  .cal-form-actions button.cal-cancelar{
+    background: var(--paper);
+    color: var(--ink-soft);
+    border-color: var(--rule);
+  }

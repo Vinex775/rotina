@@ -1,4 +1,4 @@
-<!-- Rotina — versão 8.0-dev (Calendário em construção: mês/navegação prontos, criar evento ainda não | correção crítica: function render() restaurada | CSS movido para styles.css) -->
+<!-- Rotina — versão 8.1-dev (separação em arquivos, etapa 1/3: firebase-init.js, estado.js e notifications.js extraídos; index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -128,6 +128,7 @@
       <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
     </div>
     <div class="cal-grid" id="calendarioGrid"></div>
+    <div id="calendarioFormArea"></div>
   </div>
 </div>
 
@@ -137,95 +138,19 @@
 // npm/Node.js. Isso é possível porque o SDK v9+ do Firebase é
 // distribuído também como "ES module" hospedado no gstatic.com.
 // ============================================================
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js';
 import {
-  getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  createUserWithEmailAndPassword, signInWithEmailAndPassword,
   signOut, onAuthStateChanged
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
-  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   doc, setDoc, getDoc, deleteDoc, collection, writeBatch, onSnapshot,
   updateDoc, arrayUnion
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
-// Novo: Firebase Messaging, pra pedir permissão e gerar o token de notificação
-import {
-  getMessaging, getToken
-} from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-messaging.js';
 
-// Sua configuração do projeto Firebase (identifica o projeto, não é secreta)
-const firebaseConfig = {
-  apiKey: "AIzaSyADpeCEevj15AGz-xuhlZvY1xgvuLZyGuU",
-  authDomain: "rotina-e87f2.firebaseapp.com",
-  projectId: "rotina-e87f2",
-  storageBucket: "rotina-e87f2.firebasestorage.app",
-  messagingSenderId: "867915295946",
-  appId: "1:867915295946:web:e1433e946157e4c3d69833"
-};
+import { auth, db } from './firebase-init.js';
+import { currentUser, setCurrentUser } from './estado.js';
+import { ativarNotificacoes } from './notifications.js';
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-// Antes: const db = getFirestore(app);
-// Agora: guardamos um cache persistente em disco (IndexedDB), não só na
-// memória RAM. Isso faz o app enfileirar suas alterações de um jeito que
-// sobrevive a fechar a aba, perder internet, ou o PC dormir no meio do
-// caminho — quando a conexão voltar, ele reenvia sozinho o que faltou.
-// persistentMultipleTabManager() é o que permite abrir o Rotina em mais
-// de uma aba ao mesmo tempo sem elas brigarem por causa desse cache.
-const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-});
-
-// ---------- Notificações push ----------
-// Chave gerada em: Firebase Console > Configurações do projeto > Cloud
-// Messaging > "Web Push certificates" > Generate key pair. Sem ela, o
-// getToken() abaixo não funciona.
-const VAPID_KEY = "BBrcXdHGipIRtVJhkUuNwglGHDvcSGA8KnwYbXKIcQb8bHvotwJcQEFuqhB9emq-W1YDjJPiOK6AGoRpVH4P8tQ";
-const messaging = getMessaging(app);
-
-// O service worker precisa estar registrado pra notificação funcionar mesmo
-// com o Rotina fechado. Caminho relativo pra funcionar tanto num domínio
-// próprio quanto num projeto do GitHub Pages (usuario.github.io/repo/).
-// Guardamos a Promise do registro pra usar esse MESMO registro no getToken()
-// mais abaixo — sem isso, o Firebase tenta criar um registro próprio na raiz
-// do domínio (e não dentro da subpasta do projeto), o que dá 404.
-let swRegistrationPromise = null;
-if ('serviceWorker' in navigator) {
-  swRegistrationPromise = navigator.serviceWorker.register('./firebase-messaging-sw.js').catch((e) => {
-    console.error('Falha ao registrar o service worker de notificações', e);
-    return null;
-  });
-}
-
-async function ativarNotificacoes() {
-  if (!currentUser) return;
-
-  const permissao = await Notification.requestPermission();
-  if (permissao !== 'granted') {
-    alert('Notificações não foram permitidas pelo navegador.');
-    return;
-  }
-
-  try {
-    const registration = swRegistrationPromise ? await swRegistrationPromise : null;
-    const token = await getToken(messaging, {
-      vapidKey: VAPID_KEY,
-      serviceWorkerRegistration: registration || undefined
-    });
-    if (!token) {
-      alert('Não foi possível gerar o token de notificação.');
-      return;
-    }
-    await updateDoc(doc(db, 'usuarios', currentUser.uid), {
-      tokensNotificacao: arrayUnion(token)
-    });
-    alert('Notificações ativadas com sucesso!');
-  } catch (e) {
-    console.error('Falha ao ativar notificações', e);
-    alert('Algo deu errado ao ativar as notificações. Veja o console para detalhes.');
-  }
-}
-
-let currentUser = null;
 let unsubscribeModo = null;    // pra parar de "escutar" o documento de modo no logout
 let unsubscribeTarefas = null; // pra parar de "escutar" a coleção de tarefas no logout
 let unsubscribeBlocos = null; // pra parar de "escutar" a coleção de blocos da grade no logout
@@ -516,6 +441,8 @@ let diaGradeSelecionado = new Date().getDay(); // qual dia da semana está sendo
 let blocoEditandoId = null; // qual bloco está com o formulário de edição aberto
 let eventos = []; // eventos do Calendário (usuarios/{uid}/eventos), carregados do Firestore
 let mesCalendarioAtual = new Date(); // qual mês está sendo exibido na tela Calendário
+let eventoFormAbertoParaDia = null; // 'AAAA-MM-DD' do dia clicado pra criar um evento novo, ou null
+let eventoEditandoId = null; // id do evento com o formulário de edição aberto, ou null
 
 function getVisibleTasks(){
   const hoje = new Date().getDay();
@@ -838,6 +765,12 @@ function eventosNoDia(ano, mes, dia){
   return eventos.filter(ev => eventoOcorreEm(ev, ano, mes, dia));
 }
 
+// 'AAAA-MM-DD', o mesmo formato que os <input type="date"> usam e que
+// salvamos em evento.dataInicio/dataFim
+function dataISO(ano, mes, dia){
+  return ano + '-' + pad(mes + 1) + '-' + pad(dia);
+}
+
 function renderCalendario(){
   const grid = document.getElementById('calendarioGrid');
   grid.innerHTML = '';
@@ -867,6 +800,15 @@ function renderCalendario(){
     const ehHoje = hoje.getFullYear() === ano && hoje.getMonth() === mes && hoje.getDate() === dia;
     if(ehHoje) cell.classList.add('hoje');
 
+    // clicar em qualquer parte "vazia" da célula abre o formulário de
+    // criar evento nesse dia — o stopPropagation nas tags de evento
+    // (abaixo) evita que clicar num evento existente dispare isso também
+    cell.onclick = () => {
+      eventoEditandoId = null;
+      eventoFormAbertoParaDia = dataISO(ano, mes, dia);
+      renderCalendario();
+    };
+
     const numero = document.createElement('div');
     numero.className = 'cal-day-num';
     numero.textContent = dia;
@@ -876,11 +818,169 @@ function renderCalendario(){
       const tag = document.createElement('div');
       tag.className = 'cal-evento';
       tag.textContent = ev.titulo;
+      tag.onclick = (e) => {
+        e.stopPropagation();
+        eventoFormAbertoParaDia = null;
+        eventoEditandoId = ev.id;
+        renderCalendario();
+      };
       cell.appendChild(tag);
     });
 
     grid.appendChild(cell);
   }
+
+  buildEventoFormArea();
+}
+
+// Monta o formulário de criar (eventoFormAbertoParaDia) ou editar
+// (eventoEditandoId) um evento. Só um dos dois fica ativo por vez.
+function buildEventoFormArea(){
+  const area = document.getElementById('calendarioFormArea');
+  area.innerHTML = '';
+
+  const criando = !!eventoFormAbertoParaDia;
+  const editando = !!eventoEditandoId;
+  if(!criando && !editando) return;
+
+  const eventoAtual = editando ? eventos.find(e => e.id === eventoEditandoId) : null;
+  if(editando && !eventoAtual) { eventoEditandoId = null; return; }
+
+  const painel = document.createElement('div');
+  painel.className = 'cal-form';
+
+  const titulo = document.createElement('div');
+  titulo.textContent = editando
+    ? 'Editar evento'
+    : 'Novo evento em ' + eventoFormAbertoParaDia.split('-').reverse().join('/');
+  titulo.style.marginBottom = '10px';
+  titulo.style.fontWeight = 'bold';
+  painel.appendChild(titulo);
+
+  // ---- linha: título do evento ----
+  const linhaTitulo = document.createElement('div');
+  linhaTitulo.className = 'cal-form-row';
+  const inputTitulo = document.createElement('input');
+  inputTitulo.type = 'text';
+  inputTitulo.placeholder = 'Título do evento';
+  inputTitulo.value = eventoAtual ? eventoAtual.titulo : '';
+  linhaTitulo.appendChild(inputTitulo);
+  painel.appendChild(linhaTitulo);
+
+  // ---- linha: data de início / vários dias / data de fim ----
+  const linhaData = document.createElement('div');
+  linhaData.className = 'cal-form-row';
+
+  const inputInicio = document.createElement('input');
+  inputInicio.type = 'date';
+  inputInicio.value = eventoAtual ? eventoAtual.dataInicio : eventoFormAbertoParaDia;
+  linhaData.appendChild(inputInicio);
+
+  const labelVariosDias = document.createElement('label');
+  const checkVariosDias = document.createElement('input');
+  checkVariosDias.type = 'checkbox';
+  const temVariosDias = !!(eventoAtual && eventoAtual.dataFim && eventoAtual.dataFim !== eventoAtual.dataInicio);
+  checkVariosDias.checked = temVariosDias;
+  labelVariosDias.appendChild(checkVariosDias);
+  labelVariosDias.appendChild(document.createTextNode(' vários dias'));
+  linhaData.appendChild(labelVariosDias);
+
+  const inputFim = document.createElement('input');
+  inputFim.type = 'date';
+  inputFim.value = eventoAtual ? (eventoAtual.dataFim || eventoAtual.dataInicio) : eventoFormAbertoParaDia;
+  inputFim.style.display = temVariosDias ? '' : 'none';
+  linhaData.appendChild(inputFim);
+
+  checkVariosDias.onchange = () => {
+    inputFim.style.display = checkVariosDias.checked ? '' : 'none';
+  };
+
+  painel.appendChild(linhaData);
+
+  // ---- linha: dia todo / horário ----
+  const linhaHorario = document.createElement('div');
+  linhaHorario.className = 'cal-form-row';
+
+  const labelDiaTodo = document.createElement('label');
+  const checkDiaTodo = document.createElement('input');
+  checkDiaTodo.type = 'checkbox';
+  const ehDiaTodo = !eventoAtual || !eventoAtual.horario;
+  checkDiaTodo.checked = ehDiaTodo;
+  labelDiaTodo.appendChild(checkDiaTodo);
+  labelDiaTodo.appendChild(document.createTextNode(' dia todo'));
+  linhaHorario.appendChild(labelDiaTodo);
+
+  const inputHorario = document.createElement('input');
+  inputHorario.type = 'time';
+  inputHorario.value = eventoAtual && eventoAtual.horario ? eventoAtual.horario : '';
+  inputHorario.style.display = ehDiaTodo ? 'none' : '';
+  linhaHorario.appendChild(inputHorario);
+
+  checkDiaTodo.onchange = () => {
+    inputHorario.style.display = checkDiaTodo.checked ? 'none' : '';
+  };
+
+  painel.appendChild(linhaHorario);
+
+  // ---- linha: recorrência ----
+  const linhaRecorrencia = document.createElement('div');
+  linhaRecorrencia.className = 'cal-form-row';
+  linhaRecorrencia.appendChild(document.createTextNode('Repete:'));
+  const selectRecorrencia = document.createElement('select');
+  [['nenhuma', 'Não repete'], ['mensal', 'Todo mês'], ['anual', 'Todo ano']].forEach(([valor, texto]) => {
+    const opt = document.createElement('option');
+    opt.value = valor;
+    opt.textContent = texto;
+    if(eventoAtual && eventoAtual.recorrencia === valor) opt.selected = true;
+    if(!eventoAtual && valor === 'nenhuma') opt.selected = true;
+    selectRecorrencia.appendChild(opt);
+  });
+  linhaRecorrencia.appendChild(selectRecorrencia);
+  painel.appendChild(linhaRecorrencia);
+
+  // ---- botões ----
+  const acoes = document.createElement('div');
+  acoes.className = 'cal-form-actions';
+
+  const btnSalvar = document.createElement('button');
+  btnSalvar.textContent = 'Salvar';
+  btnSalvar.onclick = () => {
+    const dadosEvento = {
+      titulo: inputTitulo.value.trim() || 'Sem título',
+      dataInicio: inputInicio.value,
+      dataFim: checkVariosDias.checked ? inputFim.value : inputInicio.value,
+      horario: checkDiaTodo.checked ? null : inputHorario.value,
+      recorrencia: selectRecorrencia.value
+    };
+    if(!dadosEvento.dataInicio) return; // sem data não tem como salvar
+    if(editando){
+      atualizarEvento(eventoEditandoId, dadosEvento);
+    }else{
+      adicionarEvento(dadosEvento);
+    }
+  };
+  acoes.appendChild(btnSalvar);
+
+  if(editando){
+    const btnApagar = document.createElement('button');
+    btnApagar.className = 'cal-apagar';
+    btnApagar.textContent = 'Apagar';
+    btnApagar.onclick = () => removerEvento(eventoEditandoId);
+    acoes.appendChild(btnApagar);
+  }
+
+  const btnCancelar = document.createElement('button');
+  btnCancelar.className = 'cal-cancelar';
+  btnCancelar.textContent = 'Cancelar';
+  btnCancelar.onclick = () => {
+    eventoFormAbertoParaDia = null;
+    eventoEditandoId = null;
+    renderCalendario();
+  };
+  acoes.appendChild(btnCancelar);
+
+  painel.appendChild(acoes);
+  area.appendChild(painel);
 }
 
 function render(){
@@ -1431,6 +1531,48 @@ function adicionarBloco(dadosBloco){
   salvarBloco(bloco);
 }
 
+async function salvarEvento(evento){
+  if(!currentUser) return;
+  try{
+    await setDoc(doc(eventosColRef(), evento.id), evento);
+  }catch(e){
+    console.error('Falha ao salvar evento', e);
+  }
+}
+
+async function apagarEventoDoc(eventoId){
+  if(!currentUser) return;
+  try{
+    await deleteDoc(doc(eventosColRef(), eventoId));
+  }catch(e){
+    console.error('Falha ao apagar evento', e);
+  }
+}
+
+function adicionarEvento(dadosEvento){
+  const evento = { id: 'e' + Date.now() + Math.random().toString(36).slice(2,6), ...dadosEvento };
+  eventos.push(evento);
+  eventoFormAbertoParaDia = null;
+  renderCalendario();
+  salvarEvento(evento);
+}
+
+function atualizarEvento(eventoId, dadosEvento){
+  const evento = eventos.find(e => e.id === eventoId);
+  if(!evento) return;
+  Object.assign(evento, dadosEvento);
+  eventoEditandoId = null;
+  renderCalendario();
+  salvarEvento(evento);
+}
+
+function removerEvento(eventoId){
+  eventos = eventos.filter(e => e.id !== eventoId);
+  eventoEditandoId = null;
+  renderCalendario();
+  apagarEventoDoc(eventoId);
+}
+
 async function apagarBlocoDoc(blocoId){
   if(!currentUser) return;
   try{
@@ -1942,7 +2084,7 @@ document.getElementById('btnSair').onclick = async () => {
 document.getElementById('btnAtivarNotificacoes').onclick = ativarNotificacoes;
 
 onAuthStateChanged(auth, async (user) => {
-  currentUser = user;
+  setCurrentUser(user);
   if(user){
     loginScreen.classList.add('hidden');
     appScreen.classList.remove('hidden');
