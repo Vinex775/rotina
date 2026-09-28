@@ -1,4 +1,4 @@
-<!-- Rotina — versão 8.1-dev (separação em arquivos, etapa 1/3: firebase-init.js, estado.js e notifications.js extraídos; index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 8.1-dev (separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -148,13 +148,14 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 import { auth, db } from './firebase-init.js';
-import { currentUser, setCurrentUser } from './estado.js';
+import { currentUser, setCurrentUser, telaAtual, setTelaAtual } from './estado.js';
 import { ativarNotificacoes } from './notifications.js';
+import {
+  tarefasColRef, blocosColRef, eventosColRef, usuarioDocRef,
+  isApplyingRemoteData, salvarModo, migrarDadosAntigosSeNecessario,
+  comecarAEscutarDados, pararDeEscutar
+} from './sync.js';
 
-let unsubscribeModo = null;    // pra parar de "escutar" o documento de modo no logout
-let unsubscribeTarefas = null; // pra parar de "escutar" a coleção de tarefas no logout
-let unsubscribeBlocos = null; // pra parar de "escutar" a coleção de blocos da grade no logout
-let unsubscribeEventos = null; // pra parar de "escutar" a coleção de eventos do calendário no logout
 
 // ---------- Estado do app (igual antes) ----------
 let tasks = [];
@@ -167,7 +168,13 @@ let editingSubtaskId = null; // qual mini-passo está com o texto em edição no
 let focarSubtaskAoEditar = false; // liga só no instante em que se clica pra editar um passo
 let selectedCategory = 'all';
 let currentMode = 'ambos';
-let isApplyingRemoteData = false; // evita salvar de volta enquanto só estamos recebendo dados
+
+// O sync.js não pode mudar essas variáveis direto (são daqui), então ele
+// chama estas pequenas funções, que fazem a troca por ele.
+function setTasks(lista){ tasks = lista; }
+function setBlocos(lista){ blocos = lista; }
+function setEventos(lista){ eventos = lista; }
+function setCurrentMode(modo){ currentMode = modo; }
 
 function renderModeBar(){
   document.querySelectorAll('.mode-btn[data-mode]').forEach(b => {
@@ -435,7 +442,6 @@ const GROUPS = [
 
 let viewMode = 'freq'; // 'freq' (padrão, por Diária/Semanal/...) ou 'pasta'
 let showBlocked = false; // tarefas travadas por meta ficam escondidas por padrão
-let telaAtual = 'lista'; // 'lista' (checklist de sempre) ou 'grade' (grade horária do dia)
 let blocos = []; // blocos da Grade Horária, um por dia da semana
 let diaGradeSelecionado = new Date().getDay(); // qual dia da semana está sendo visualizado na Grade
 let blocoEditandoId = null; // qual bloco está com o formulário de edição aberto
@@ -1499,21 +1505,6 @@ function buildSubtaskPanel(task, modoEdicaoCompleta){
 // último, nunca mais a lista inteira.
 // O documento "usuarios/<uid>" agora guarda só o campo "mode".
 
-function tarefasColRef(){
-  return collection(db, 'usuarios', currentUser.uid, 'tarefas');
-}
-
-function blocosColRef(){
-  return collection(db, 'usuarios', currentUser.uid, 'blocos');
-}
-
-function eventosColRef(){
-  return collection(db, 'usuarios', currentUser.uid, 'eventos');
-}
-
-function usuarioDocRef(){
-  return doc(db, 'usuarios', currentUser.uid);
-}
 
 async function salvarBloco(bloco){
   if(!currentUser) return;
@@ -1621,117 +1612,6 @@ async function salvarVariasTarefas(tarefasParaSalvar, idsParaApagar){
   }
 }
 
-async function salvarModo(){
-  if(!currentUser || isApplyingRemoteData) return;
-  try{
-    await setDoc(usuarioDocRef(), { mode: currentMode }, { merge: true });
-  }catch(e){
-    console.error('Falha ao salvar modo', e);
-  }
-}
-
-// Migração de contas antigas: se o documento do usuário ainda tiver
-// aquele campo "tasks" (array inteiro, do jeito antigo), transforma
-// cada item dele num documento separado na nova coleção, uma única vez.
-// É seguro rodar isso de novo por engano — usa o mesmo id de sempre,
-// então só sobrescreve com o mesmo conteúdo, nunca duplica.
-async function migrarDadosAntigosSeNecessario(){
-  const refUsuario = usuarioDocRef();
-  const snap = await getDoc(refUsuario);
-  const data = snap.data();
-  if(!data || !Array.isArray(data.tasks) || data.tasks.length === 0) return;
-
-  const batch = writeBatch(db);
-  data.tasks.forEach((t, i) => {
-    const id = t.id || ('t' + Date.now() + i);
-    const tarefaComOrdem = { ...t, id, ordem: (t.ordem != null ? t.ordem : i) };
-    batch.set(doc(tarefasColRef(), id), tarefaComOrdem);
-  });
-  // sobrescreve o documento do usuário SEM o campo "tasks" antigo — a partir
-  // de agora ele só guarda o modo, as tarefas vivem todas na subcoleção
-  batch.set(refUsuario, { mode: data.mode || 'ambos' });
-  await batch.commit();
-}
-
-let pendingWritesModo = false;
-let pendingWritesTarefas = false;
-let pendingWrites = false;
-
-function atualizarStatusSincronizacao(){
-  pendingWrites = pendingWritesModo || pendingWritesTarefas;
-  document.getElementById('syncStatus').textContent = pendingWrites ? 'salvando...' : 'sincronizado';
-}
-
-function comecarAEscutarDados(){
-  unsubscribeModo = onSnapshot(usuarioDocRef(), { includeMetadataChanges: true }, (snap) => {
-    pendingWritesModo = snap.metadata.hasPendingWrites;
-    const data = snap.data();
-    currentMode = (data && data.mode) || 'ambos';
-    atualizarStatusSincronizacao();
-    render();
-  }, (err) => {
-    console.error('Erro ao escutar modo', err);
-    document.getElementById('syncStatus').textContent = 'sem conexão';
-  });
-
-  unsubscribeTarefas = onSnapshot(tarefasColRef(), { includeMetadataChanges: true }, (snap) => {
-    pendingWritesTarefas = snap.metadata.hasPendingWrites;
-
-    isApplyingRemoteData = true;
-    tasks = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-    tasks.sort((a, b) => (a.ordem || 0) - (b.ordem || 0));
-
-    document.getElementById('loadingMsg').style.display = 'none';
-    atualizarStatusSincronizacao();
-
-    const tarefasComAtraso = checkMissedTasks();
-    const idsParaApagar = cleanupOnceTasks();
-    const tarefasComPipelineResetado = resetExpiredPipelines();
-
-    render();
-    isApplyingRemoteData = false;
-
-    // junta as duas listas de "tarefas alteradas pela manutenção" sem duplicar,
-    // caso a mesma tarefa apareça em ambas
-    const mapaTarefasAlteradas = new Map();
-    tarefasComAtraso.forEach(t => mapaTarefasAlteradas.set(t.id, t));
-    tarefasComPipelineResetado.forEach(t => mapaTarefasAlteradas.set(t.id, t));
-    salvarVariasTarefas(Array.from(mapaTarefasAlteradas.values()), idsParaApagar);
-  }, (err) => {
-    console.error('Erro ao escutar tarefas', err);
-    document.getElementById('syncStatus').textContent = 'sem conexão';
-  });
-
-  unsubscribeBlocos = onSnapshot(blocosColRef(), (snap) => {
-    blocos = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-    if(telaAtual === 'grade') renderGrade();
-  }, (err) => {
-    console.error('Erro ao escutar blocos da grade', err);
-  });
-
-  unsubscribeEventos = onSnapshot(eventosColRef(), (snap) => {
-    eventos = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-    if(telaAtual === 'calendario') renderCalendario();
-  }, (err) => {
-    console.error('Erro ao escutar eventos do calendário', err);
-  });
-}
-
-// Se você tentar fechar/recarregar a aba enquanto ainda existe alteração
-// não confirmada pelo servidor, o navegador mostra um aviso de confirmação.
-window.addEventListener('beforeunload', (e) => {
-  if(pendingWrites){
-    e.preventDefault();
-    e.returnValue = '';
-  }
-});
-
-function pararDeEscutar(){
-  if(unsubscribeModo){ unsubscribeModo(); unsubscribeModo = null; }
-  if(unsubscribeTarefas){ unsubscribeTarefas(); unsubscribeTarefas = null; }
-  if(unsubscribeBlocos){ unsubscribeBlocos(); unsubscribeBlocos = null; }
-  if(unsubscribeEventos){ unsubscribeEventos(); unsubscribeEventos = null; }
-}
 
 function togglePin(id){
   const task = tasks.find(t => t.id === id);
@@ -1980,7 +1860,7 @@ document.getElementById('modeBar').addEventListener('click', e => {
   if(!btn) return;
   currentMode = btn.dataset.mode;
   render();
-  salvarModo();
+  salvarModo(currentMode);
 });
 
 document.getElementById('viewBar').addEventListener('click', e => {
@@ -2000,7 +1880,7 @@ document.getElementById('metaBar').addEventListener('click', e => {
 document.getElementById('telaToggle').addEventListener('click', e => {
   const btn = e.target.closest('.tela-btn');
   if(!btn) return;
-  telaAtual = btn.dataset.tela;
+  setTelaAtual(btn.dataset.tela);
   document.querySelectorAll('.tela-btn').forEach(b => b.classList.toggle('active', b.dataset.tela === telaAtual));
   document.getElementById('listaScreen').classList.toggle('hidden', telaAtual !== 'lista');
   document.getElementById('gradeScreen').classList.toggle('hidden', telaAtual !== 'grade');
@@ -2095,7 +1975,12 @@ onAuthStateChanged(auth, async (user) => {
     }catch(e){
       console.error('Falha ao migrar dados antigos', e);
     }
-    comecarAEscutarDados();
+    comecarAEscutarDados({
+      setTasks, setBlocos, setEventos, setCurrentMode,
+      render, renderGrade, renderCalendario,
+      checkMissedTasks, cleanupOnceTasks, resetExpiredPipelines,
+      salvarVariasTarefas
+    });
   } else {
     appScreen.classList.add('hidden');
     loginScreen.classList.remove('hidden');

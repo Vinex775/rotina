@@ -13,3 +13,9 @@ export let currentUser = null;
 export function setCurrentUser(user){
   currentUser = user;
 }
+
+// 'lista' (checklist de sempre), 'grade' (grade horária) ou 'calendario'
+export let telaAtual = 'lista';
+export function setTelaAtual(nome){
+  telaAtual = nome;
+}
