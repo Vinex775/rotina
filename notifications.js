@@ -2,7 +2,7 @@
 // Tudo relacionado a pedir permissão e ativar notificações push do usuário.
 import { db, messaging, VAPID_KEY } from './firebase-init.js';
 import {
-  doc, updateDoc, arrayUnion
+  doc, getDoc, updateDoc, arrayUnion
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 import { getToken } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-messaging.js';
 import { currentUser } from './estado.js';
@@ -40,7 +40,27 @@ export async function ativarNotificacoes() {
       alert('Não foi possível gerar o token de notificação.');
       return;
     }
-    await updateDoc(doc(db, 'usuarios', currentUser.uid), {
+    const usuarioRef = doc(db, 'usuarios', currentUser.uid);
+
+    // Este aparelho já está cadastrado? O token é único por aparelho/navegador,
+    // então se ele já está na lista salva na sua conta, não há o que fazer.
+    // Se a leitura falhar (ex.: sem internet), seguimos e tentamos salvar
+    // mesmo assim — o arrayUnion nunca duplica um token que já existe.
+    let jaAtivado = false;
+    try {
+      const snap = await getDoc(usuarioRef);
+      const tokensSalvos = (snap.data() && snap.data().tokensNotificacao) || [];
+      jaAtivado = tokensSalvos.includes(token);
+    } catch (e) {
+      console.warn('Não deu pra checar se as notificações já estavam ativadas', e);
+    }
+
+    if (jaAtivado) {
+      alert('Notificações já ativadas neste aparelho.');
+      return;
+    }
+
+    await updateDoc(usuarioRef, {
       tokensNotificacao: arrayUnion(token)
     });
     alert('Notificações ativadas com sucesso!');
