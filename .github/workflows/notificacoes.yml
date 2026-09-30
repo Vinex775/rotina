@@ -1,11 +1,8 @@
 name: Notificações do Rotina
 
 on:
-  # Roda sozinho a cada 15 minutos. Ajuste o "*/15" se quiser outro intervalo
-  # (ex: "*/5" = a cada 5 min). O horário do cron é sempre em UTC.
-  schedule:
-    - cron: "*/15 * * * *"
-  # Permite clicar em "Run workflow" na aba Actions e rodar na hora, pra testar
+  # O agendamento agora é feito por um Cloudflare Worker (mais pontual que o
+  # "schedule" nativo do GitHub Actions), que chama este workflow por aqui:
   workflow_dispatch:
 
 jobs:
