@@ -98,10 +98,16 @@ function montarCorpo(inicio, diferenca, texto) {
 async function main() {
   // Só carrega o firebase-admin aqui dentro pra dar pra testar as funções
   // acima sem precisar da credencial nem da biblioteca instalada.
-  const admin = require("firebase-admin");
+  // A partir da v10 do firebase-admin, o jeito recomendado é importar só o
+  // que se usa de cada "módulo" (app/firestore/messaging), em vez do antigo
+  // require("firebase-admin") com tudo pendurado em "admin.*".
+  const { initializeApp, cert } = require("firebase-admin/app");
+  const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+  const { getMessaging } = require("firebase-admin/messaging");
+
   const credenciais = JSON.parse(process.env.FIREBASE_CREDENTIALS);
-  admin.initializeApp({ credential: admin.credential.cert(credenciais) });
-  const db = admin.firestore();
+  initializeApp({ credential: cert(credenciais) });
+  const db = getFirestore();
 
   const agora = agoraEmSaoPaulo();
   const agoraMin = agora.getHours() * 60 + agora.getMinutes();
@@ -155,7 +161,7 @@ async function main() {
       const corpo = montarCorpo(bloco.inicio, diferenca, texto);
 
       try {
-        const resposta = await admin.messaging().sendEachForMulticast({
+        const resposta = await getMessaging().sendEachForMulticast({
           notification: { title: "Rotina", body: corpo },
           tokens, // todos os dispositivos desse usuário de uma vez
         });
@@ -180,7 +186,7 @@ async function main() {
         });
         if (invalidos.length > 0) {
           await usuarioDoc.ref.update({
-            tokensNotificacao: admin.firestore.FieldValue.arrayRemove(...invalidos),
+            tokensNotificacao: FieldValue.arrayRemove(...invalidos),
           });
           console.log(`Removidos ${invalidos.length} token(s) inválido(s).`);
         }
