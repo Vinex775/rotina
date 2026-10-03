@@ -364,8 +364,9 @@
 
   .mode-bar{
     display:flex;
+    flex-wrap: wrap; /* sem isso, muitos botões (ex: "Ver por") estouram a largura no celular */
     align-items:center;
-    gap: 10px;
+    gap: 8px 10px;
     margin-bottom: 22px;
     padding: 10px 14px;
     background: var(--paper);
@@ -754,13 +755,43 @@
   }
   .compromisso-texto{
     flex:1;
+    min-width: 0; /* sem isso, o flexbox não deixa o texto encolher e ele estoura a tela */
     font-size: 14.5px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   .compromisso-tag{
     flex: none;
     font-family: 'Courier New', monospace;
     font-size: 10px;
     color: var(--ink-soft);
+  }
+
+  @media (max-width: 480px){
+    .mode-btn{
+      padding: 6px 10px;
+    }
+    /* Grade horária no celular: 1ª linha = horário + "editar"; 2ª linha = nome da
+       atividade ocupando a largura toda (assim nomes longos quebram em várias linhas) */
+    .compromisso{
+      flex-wrap: wrap;
+      row-gap: 4px;
+    }
+    .bloco-hora{
+      order: 1;
+      width: auto;
+    }
+    .compromisso .edit-btn{
+      order: 2;
+      margin-left: auto;
+    }
+    .compromisso-texto{
+      order: 3;
+      flex: 1 1 100%;
+    }
+    .compromisso-tag{
+      order: 4;
+    }
   }
 
   .bloco-form{
