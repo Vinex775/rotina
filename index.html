@@ -1,4 +1,4 @@
-<!-- Rotina — versão 8.2-dev (correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 8.3-dev (correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1661,7 +1661,13 @@ function deleteSubtask(taskId, subId){
   task.subtasks = task.subtasks.filter(s => s.id !== subId);
   // sem nenhum passo restante, a escolha de "ordem sequencial" volta ao
   // zero — do contrário o checkbox reaparecia marcado com o valor antigo
-  if(task.subtasks.length === 0) task.sequential = false;
+  if(task.subtasks.length === 0){
+    task.sequential = false;
+    // fecha o painel de passos aberto pelo clique na tarefa mãe: sem passos, ele
+    // só mostraria o checkbox de "ordem sequencial" solto, e como a tarefa deixa
+    // de ser "pipeline", clicar nela passaria a marcar como feita em vez de fechar
+    if(subtasksOpenId === task.id) subtasksOpenId = null;
+  }
   // recalcula se a tarefa mãe deve ficar marcada como concluída
   const todosFeitos = task.subtasks.length > 0 && task.subtasks.every(s => s.done);
   task.doneKey = todosFeitos ? currentKey(task.freq) : null;
