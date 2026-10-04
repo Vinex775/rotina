@@ -525,7 +525,7 @@
   }
   .cal-weekdays{
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     text-align: center;
     font-size: 11px;
     text-transform: uppercase;
@@ -535,7 +535,7 @@
   }
   .cal-grid{
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 4px;
   }
   .cal-cell{
@@ -1061,4 +1061,19 @@
     background: var(--paper);
     color: var(--ink-soft);
     border-color: var(--rule);
+  }
+
+  /* ---------- Seletor de cor dos eventos (formulário do Calendário) ---------- */
+  .cal-form-row .cal-cor-opcao{
+    width: 26px;
+    height: 26px;
+    min-width: 0;
+    padding: 0;
+    border: 2px solid var(--paper);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 0 1px var(--rule);
+  }
+  .cal-form-row .cal-cor-opcao.selecionada{
+    box-shadow: 0 0 0 2px var(--ink);
   }

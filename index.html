@@ -1,4 +1,4 @@
-<!-- Rotina — versão 8.5-dev (app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 8.6-dev (Calendário: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -762,6 +762,33 @@ function buildAddBlocoForm(){
   return form;
 }
 
+// ---------- Cores dos eventos ----------
+// Paleta que aparece no seletor do formulário. O primeiro azul é o padrão: é a
+// cor que os eventos já tinham antes do seletor existir, então eventos antigos
+// (sem o campo "cor" salvo) continuam com a mesma aparência.
+const COR_EVENTO_PADRAO = '#1D6FA5';
+const CORES_EVENTO = [
+  { hex: '#1D6FA5', nome: 'Azul' },
+  { hex: '#1D9E75', nome: 'Verde' },
+  { hex: '#BA7517', nome: 'Âmbar' },
+  { hex: '#534AB7', nome: 'Roxo' },
+  { hex: '#B4483C', nome: 'Vermelho' },
+  { hex: '#C2477F', nome: 'Rosa' },
+  { hex: '#1B8A8F', nome: 'Turquesa' },
+  { hex: '#5F5E5A', nome: 'Cinza' }
+];
+
+// Devolve a cor do evento, ou o azul padrão se não tiver (ou se estiver inválida)
+function corDoEvento(ev){
+  return (ev && /^#[0-9a-fA-F]{6}$/.test(ev.cor || '')) ? ev.cor : COR_EVENTO_PADRAO;
+}
+
+// '#1D6FA5' + 0.18 -> 'rgba(29, 111, 165, 0.18)' (fundo clarinho da etiqueta)
+function hexParaRgba(hex, alfa){
+  const n = parseInt(hex.slice(1), 16);
+  return 'rgba(' + ((n >> 16) & 255) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + alfa + ')';
+}
+
 // Decide se um evento acontece num dia específico do calendário —
 // considerando eventos de data única, de vários dias, e os recorrentes
 // (mensal/anual), sem precisar duplicar o evento pra cada ocorrência.
@@ -836,6 +863,10 @@ function renderCalendario(){
       const tag = document.createElement('div');
       tag.className = 'cal-evento';
       tag.textContent = ev.titulo;
+      const cor = corDoEvento(ev);
+      tag.style.background = hexParaRgba(cor, 0.18);
+      tag.style.borderLeft = '3px solid ' + cor;
+      tag.style.color = 'var(--ink)';
       tag.onclick = (e) => {
         e.stopPropagation();
         eventoFormAbertoParaDia = null;
@@ -956,6 +987,29 @@ function buildEventoFormArea(){
   linhaRecorrencia.appendChild(selectRecorrencia);
   painel.appendChild(linhaRecorrencia);
 
+  // ---- linha: cor do evento ----
+  let corSelecionada = corDoEvento(eventoAtual);
+  const linhaCor = document.createElement('div');
+  linhaCor.className = 'cal-form-row';
+  linhaCor.appendChild(document.createTextNode('Cor:'));
+  const bolinhas = [];
+  CORES_EVENTO.forEach(({ hex, nome }) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cal-cor-opcao';
+    b.style.background = hex;
+    b.title = nome;
+    b.setAttribute('aria-label', nome);
+    b.classList.toggle('selecionada', hex === corSelecionada);
+    b.onclick = () => {
+      corSelecionada = hex;
+      bolinhas.forEach(x => x.classList.toggle('selecionada', x === b));
+    };
+    bolinhas.push(b);
+    linhaCor.appendChild(b);
+  });
+  painel.appendChild(linhaCor);
+
   // ---- botões ----
   const acoes = document.createElement('div');
   acoes.className = 'cal-form-actions';
@@ -968,7 +1022,8 @@ function buildEventoFormArea(){
       dataInicio: inputInicio.value,
       dataFim: checkVariosDias.checked ? inputFim.value : inputInicio.value,
       horario: checkDiaTodo.checked ? null : inputHorario.value,
-      recorrencia: selectRecorrencia.value
+      recorrencia: selectRecorrencia.value,
+      cor: corSelecionada
     };
     if(!dadosEvento.dataInicio) return; // sem data não tem como salvar
     if(editando){
