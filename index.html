@@ -1,4 +1,4 @@
-<!-- Rotina — versão 8.6-dev (Calendário: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 8.7-dev (Calendário: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -816,6 +816,73 @@ function dataISO(ano, mes, dia){
   return ano + '-' + pad(mes + 1) + '-' + pad(dia);
 }
 
+// Monta os "pedaços" (segmentos) de evento de UMA semana do calendário.
+// Um evento de vários dias vira uma barra única que atravessa as colunas dos
+// dias, e se continuar na semana seguinte ganha um novo pedaço lá (igual ao
+// Google Agenda). Eventos de um dia só (e os recorrentes) viram pedaços de
+// largura 1. 'dias' tem 7 itens: o número do dia do mês, ou null se aquela
+// coluna cai fora do mês exibido.
+function montarSegmentosDaSemana(ano, mes, dias){
+  const segmentos = [];
+  const isoDaColuna = col => dataISO(ano, mes, dias[col]);
+
+  eventos.forEach(ev => {
+    const recorrente = ev.recorrencia === 'anual' || ev.recorrencia === 'mensal';
+    const fimISO = ev.dataFim || ev.dataInicio;
+    const multi = !recorrente && fimISO !== ev.dataInicio;
+
+    if(recorrente){
+      // recorrentes: cada ocorrência é um dia só
+      dias.forEach((dia, col) => {
+        if(dia !== null && eventoOcorreEm(ev, ano, mes, dia)){
+          segmentos.push({ ev, c0: col, c1: col, esq: false, dir: false, multi: false });
+        }
+      });
+      return;
+    }
+
+    // não recorrente: acha o primeiro e o último dia desta semana que o evento cobre
+    let c0 = -1, c1 = -1;
+    dias.forEach((dia, col) => {
+      if(dia !== null && eventoOcorreEm(ev, ano, mes, dia)){
+        if(c0 === -1) c0 = col;
+        c1 = col;
+      }
+    });
+    if(c0 === -1) return;
+    segmentos.push({
+      ev, c0, c1, multi,
+      esq: ev.dataInicio < isoDaColuna(c0),  // já tinha começado antes: ponta esquerda reta
+      dir: fimISO > isoDaColuna(c1)          // continua depois: ponta direita reta
+    });
+  });
+
+  // ordem de colocação: barras de vários dias primeiro (ficam no topo),
+  // depois os de um dia; dentro disso, os que começam antes e os mais longos primeiro
+  segmentos.sort((a, b) =>
+    (b.multi - a.multi) ||
+    (a.c0 - b.c0) ||
+    // quem começou antes fica por cima, assim a mesma barra mantém a mesma
+    // ordem de uma semana para a outra
+    (a.ev.dataInicio || '').localeCompare(b.ev.dataInicio || '') ||
+    ((b.c1 - b.c0) - (a.c1 - a.c0)) ||
+    ((a.ev.horario || '').localeCompare(b.ev.horario || '')) ||
+    ((a.ev.titulo || '').localeCompare(b.ev.titulo || ''))
+  );
+
+  // distribui em "faixas" (linhas): cada segmento vai pra primeira faixa onde
+  // não bate com outro já colocado
+  const faixas = [];
+  segmentos.forEach(seg => {
+    let i = 0;
+    while(i < faixas.length && faixas[i].some(o => !(seg.c1 < o.c0 || seg.c0 > o.c1))) i++;
+    if(i === faixas.length) faixas.push([]);
+    faixas[i].push(seg);
+    seg.faixa = i;
+  });
+  return { segmentos, totalFaixas: faixas.length };
+}
+
 function renderCalendario(){
   const grid = document.getElementById('calendarioGrid');
   grid.innerHTML = '';
@@ -831,52 +898,95 @@ function renderCalendario(){
   const diaSemanaDoInicio = primeiroDia.getDay(); // 0 = domingo
   const totalDiasNoMes = ultimoDia.getDate();
   const hoje = new Date();
+  const faixasMinimas = window.innerWidth <= 480 ? 2 : 3; // altura mínima de cada semana
 
-  // células vazias antes do dia 1, só pra alinhar com o dia da semana certo
-  for(let i = 0; i < diaSemanaDoInicio; i++){
-    const vazio = document.createElement('div');
-    vazio.className = 'cal-cell empty';
-    grid.appendChild(vazio);
-  }
+  // quantas semanas (linhas) o mês ocupa
+  const totalSemanas = Math.ceil((diaSemanaDoInicio + totalDiasNoMes) / 7);
 
-  for(let dia = 1; dia <= totalDiasNoMes; dia++){
-    const cell = document.createElement('div');
-    cell.className = 'cal-cell';
-    const ehHoje = hoje.getFullYear() === ano && hoje.getMonth() === mes && hoje.getDate() === dia;
-    if(ehHoje) cell.classList.add('hoje');
+  for(let semana = 0; semana < totalSemanas; semana++){
+    // número do dia em cada uma das 7 colunas (null = fora do mês)
+    const dias = [];
+    for(let col = 0; col < 7; col++){
+      const dia = semana * 7 + col - diaSemanaDoInicio + 1;
+      dias.push(dia >= 1 && dia <= totalDiasNoMes ? dia : null);
+    }
 
-    // clicar em qualquer parte "vazia" da célula abre o formulário de
-    // criar evento nesse dia — o stopPropagation nas tags de evento
-    // (abaixo) evita que clicar num evento existente dispare isso também
-    cell.onclick = () => {
-      eventoEditandoId = null;
-      eventoFormAbertoParaDia = dataISO(ano, mes, dia);
-      renderCalendario();
-    };
+    const { segmentos, totalFaixas } = montarSegmentosDaSemana(ano, mes, dias);
+    const faixas = Math.max(totalFaixas, faixasMinimas);
 
-    const numero = document.createElement('div');
-    numero.className = 'cal-day-num';
-    numero.textContent = dia;
-    cell.appendChild(numero);
+    // cada semana é uma grade de 7 colunas: linha 1 = número do dia,
+    // linhas seguintes = as faixas de eventos
+    const linha = document.createElement('div');
+    linha.className = 'cal-week';
+    linha.style.gridTemplateRows = '20px repeat(' + faixas + ', 17px)';
 
-    eventosNoDia(ano, mes, dia).forEach(ev => {
+    // fundo: uma "caixinha" por dia, ocupando a semana inteira na vertical
+    dias.forEach((dia, col) => {
+      const cell = document.createElement('div');
+      cell.className = 'cal-cell';
+      cell.style.gridColumn = String(col + 1);
+      cell.style.gridRow = '1 / ' + (faixas + 2);
+      if(dia === null){
+        cell.classList.add('empty');
+        linha.appendChild(cell);
+        return;
+      }
+      const ehHoje = hoje.getFullYear() === ano && hoje.getMonth() === mes && hoje.getDate() === dia;
+      if(ehHoje) cell.classList.add('hoje');
+
+      // clicar em qualquer parte "vazia" da célula abre o formulário de
+      // criar evento nesse dia — o stopPropagation nas barras de evento
+      // (abaixo) evita que clicar num evento existente dispare isso também
+      cell.onclick = () => {
+        eventoEditandoId = null;
+        eventoFormAbertoParaDia = dataISO(ano, mes, dia);
+        renderCalendario();
+      };
+
+      const numero = document.createElement('div');
+      numero.className = 'cal-day-num';
+      numero.textContent = dia;
+      cell.appendChild(numero);
+      linha.appendChild(cell);
+    });
+
+    // por cima: as barras/etiquetas de evento, posicionadas por coluna e faixa
+    segmentos.forEach(seg => {
       const tag = document.createElement('div');
-      tag.className = 'cal-evento';
-      tag.textContent = ev.titulo;
-      const cor = corDoEvento(ev);
-      tag.style.background = hexParaRgba(cor, 0.18);
-      tag.style.borderLeft = '3px solid ' + cor;
-      tag.style.color = 'var(--ink)';
+      tag.className = 'cal-evento' + (seg.multi ? ' multi' : '');
+      tag.textContent = seg.ev.titulo;
+      tag.style.gridColumn = (seg.c0 + 1) + ' / span ' + (seg.c1 - seg.c0 + 1);
+      tag.style.gridRow = String(seg.faixa + 2);
+
+      const cor = corDoEvento(seg.ev);
+      if(seg.multi){
+        // barra contínua: cor cheia, texto branco; ponta reta onde o evento continua
+        tag.style.background = cor;
+        tag.style.color = '#fff';
+        tag.style.marginLeft = seg.esq ? '0' : '2px';
+        tag.style.marginRight = seg.dir ? '0' : '2px';
+        tag.style.borderRadius =
+          (seg.esq ? '0' : '4px') + ' ' + (seg.dir ? '0' : '4px') + ' ' +
+          (seg.dir ? '0' : '4px') + ' ' + (seg.esq ? '0' : '4px');
+      }else{
+        // evento de um dia: fundo clarinho com faixa colorida à esquerda
+        tag.style.background = hexParaRgba(cor, 0.18);
+        tag.style.borderLeft = '3px solid ' + cor;
+        tag.style.color = 'var(--ink)';
+        tag.style.marginLeft = '2px';
+        tag.style.marginRight = '2px';
+      }
+
       tag.onclick = (e) => {
         e.stopPropagation();
         eventoFormAbertoParaDia = null;
-        eventoEditandoId = ev.id;
+        eventoEditandoId = seg.ev.id;
         renderCalendario();
       };
-      cell.appendChild(tag);
+      linha.appendChild(tag);
     });
 
-    grid.appendChild(cell);
+    grid.appendChild(linha);
   }
 
   buildEventoFormArea();

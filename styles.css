@@ -534,33 +534,46 @@
     margin-bottom: 4px;
   }
   .cal-grid{
-    display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    display: flex;
+    flex-direction: column;
     gap: 4px;
   }
+  /* uma semana = grade de 7 colunas; as linhas (número do dia + faixas de
+     eventos) são definidas pelo JavaScript em renderCalendario() */
+  .cal-week{
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    column-gap: 4px;
+  }
   .cal-cell{
-    min-height: 68px;
+    min-height: 0;
     border: 1px solid var(--rule);
     border-radius: 4px;
-    padding: 4px;
+    padding: 3px 4px;
     font-size: 11px;
   }
   .cal-cell.empty{ border: none; }
   .cal-cell.hoje{ border-color: var(--margin); border-width: 2px; }
   .cal-day-num{ font-weight: bold; margin-bottom: 2px; }
   .cal-evento{
+    position: relative;   /* fica por cima das caixinhas dos dias */
+    z-index: 1;
+    box-sizing: border-box;
+    align-self: start;
+    height: 15px;
+    line-height: 15px;
     background: var(--pasta-bg);
     color: var(--pasta-ink);
     border-radius: 3px;
-    padding: 1px 4px;
-    margin-bottom: 2px;
+    padding: 0 4px;
     font-size: 10px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .cal-evento.multi{ font-weight: bold; }
   @media (max-width: 480px){
-    .cal-cell{ min-height: 50px; font-size: 10px; }
+    .cal-cell{ font-size: 10px; }
   }
 
   .pasta-action{
