@@ -1149,3 +1149,28 @@
   @media (max-width: 480px){
     ul.tasks li.descricao-panel{ padding-left: 22px; }
   }
+
+  /* ---------- Seletor de cor dos blocos da Grade Horária ---------- */
+  .cor-seletor{
+    flex: 1 1 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .bloco-form .cor-opcao{
+    width: 26px;
+    height: 26px;
+    min-width: 0;
+    padding: 0;
+    border: 2px solid var(--paper);
+    border-radius: 50%;
+    cursor: pointer;
+    box-shadow: 0 0 0 1px var(--rule);
+  }
+  .bloco-form .cor-opcao.selecionada{
+    box-shadow: 0 0 0 2px var(--ink);
+  }

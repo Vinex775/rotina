@@ -1,4 +1,4 @@
-<!-- Rotina — versão 9.1-dev (correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.2-dev (Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -596,6 +596,8 @@ function buildBlocoRow(bloco){
 
   const row = document.createElement('div');
   row.className = 'compromisso' + (done ? ' done' : '');
+  // risco da esquerda na cor escolhida (sem cor salva = o verde de sempre, do CSS)
+  if(bloco.cor && /^#[0-9a-fA-F]{6}$/.test(bloco.cor)) row.style.borderLeftColor = bloco.cor;
 
   if(tarefaVinculada){
     const temPassos = tarefaVinculada.subtasks && tarefaVinculada.subtasks.length > 0;
@@ -661,6 +663,7 @@ function buildEditarBlocoForm(bloco){
   textoInput.placeholder = 'descrição do bloco';
 
   const vinculoSelect = criarSeletorDeTarefa(bloco.taskId);
+  const seletorCor = criarSeletorDeCorBloco(corDoBloco(bloco));
 
   const salvarBtn = document.createElement('button');
   salvarBtn.textContent = 'salvar';
@@ -672,7 +675,8 @@ function buildEditarBlocoForm(bloco){
       inicio: inicioInput.value || bloco.inicio,
       fim: fimInput.value || bloco.fim,
       texto: textoInput.value.trim() || bloco.texto,
-      taskId: vinculoSelect.value || null
+      taskId: vinculoSelect.value || null,
+      cor: seletorCor.obterCor()
     };
     // atualiza a lista local NA HORA e redesenha — igual o "adicionar bloco" já
     // faz. Antes só mandava pro Firestore e esperava a resposta dele voltar pra
@@ -696,9 +700,47 @@ function buildEditarBlocoForm(bloco){
   form.appendChild(fimInput);
   form.appendChild(textoInput);
   form.appendChild(vinculoSelect);
+  form.appendChild(seletorCor);
   form.appendChild(salvarBtn);
   form.appendChild(removerBtn);
   return form;
+}
+
+// ---------- Cor dos blocos da grade ----------
+// Mesma paleta dos eventos do calendário. O verde é o padrão: é a cor do risco
+// que os blocos já tinham antes do seletor, então blocos antigos (sem "cor"
+// salva) continuam iguais.
+const COR_BLOCO_PADRAO = '#1D9E75';
+
+function corDoBloco(bloco){
+  return (bloco && /^#[0-9a-fA-F]{6}$/.test(bloco.cor || '')) ? bloco.cor : COR_BLOCO_PADRAO;
+}
+
+// Linha "Cor:" com as bolinhas da paleta. Devolve o elemento; a cor escolhida
+// fica disponível em elemento.obterCor() (usado ao clicar em salvar/adicionar).
+function criarSeletorDeCorBloco(corInicial){
+  let corAtual = corInicial;
+  const wrap = document.createElement('div');
+  wrap.className = 'cor-seletor';
+  wrap.appendChild(document.createTextNode('Cor:'));
+  const bolinhas = [];
+  CORES_EVENTO.forEach(({ hex, nome }) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cor-opcao';
+    b.style.background = hex;
+    b.title = nome;
+    b.setAttribute('aria-label', nome);
+    b.classList.toggle('selecionada', hex.toLowerCase() === corAtual.toLowerCase());
+    b.onclick = () => {
+      corAtual = hex;
+      bolinhas.forEach(x => x.classList.toggle('selecionada', x === b));
+    };
+    bolinhas.push(b);
+    wrap.appendChild(b);
+  });
+  wrap.obterCor = () => corAtual;
+  return wrap;
 }
 
 // Select reaproveitado tanto pra criar quanto pra editar um bloco —
@@ -736,6 +778,7 @@ function buildAddBlocoForm(){
   textoInput.placeholder = 'descrição do bloco (ex: Academia, Relatório...)';
 
   const vinculoSelect = criarSeletorDeTarefa(null);
+  const seletorCor = criarSeletorDeCorBloco(COR_BLOCO_PADRAO);
 
   const addBtn = document.createElement('button');
   addBtn.textContent = '+ adicionar bloco';
@@ -747,7 +790,8 @@ function buildAddBlocoForm(){
       inicio: inicioInput.value,
       fim: fimInput.value,
       texto: texto,
-      taskId: vinculoSelect.value || null
+      taskId: vinculoSelect.value || null,
+      cor: seletorCor.obterCor()
     });
     textoInput.value = '';
     inicioInput.value = '';
@@ -758,6 +802,7 @@ function buildAddBlocoForm(){
   form.appendChild(fimInput);
   form.appendChild(textoInput);
   form.appendChild(vinculoSelect);
+  form.appendChild(seletorCor);
   form.appendChild(addBtn);
   return form;
 }
