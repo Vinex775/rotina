@@ -1,4 +1,4 @@
-<!-- Rotina — versão 9.2-dev (Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.3-dev (criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -70,7 +70,10 @@
 
   <div class="add-box">
     <div class="add-row">
-      <input type="text" id="newTaskText" placeholder="Nova tarefa..." maxlength="120">
+      <div class="add-text-row">
+        <input type="text" id="newTaskText" placeholder="Nova tarefa..." maxlength="120">
+        <button type="button" id="micBtn" class="mic-btn" title="Criar por voz" aria-label="Criar por voz">🎤</button>
+      </div>
       <input type="text" id="newTaskCategory" placeholder="Categoria (ex: Faculdade)" maxlength="40" list="categoryOptions">
       <datalist id="categoryOptions"></datalist>
       <input type="text" id="newTaskPasta" placeholder="Pasta (opcional)" maxlength="40" list="pastaOptions">
@@ -159,6 +162,7 @@ import {
   isApplyingRemoteData, salvarModo, migrarDadosAntigosSeNecessario,
   comecarAEscutarDados, pararDeEscutar, manutencaoLiberada
 } from './sync.js';
+import { abrirPainelDeVoz } from './voz.js';
 
 
 // ---------- Estado do app (igual antes) ----------
@@ -2170,6 +2174,55 @@ function addTask(){
 
 document.getElementById('addBtn').onclick = addTask;
 
+// ---------- Criar por voz (voz.js) ----------
+// Aviso rápido no pé da tela (some sozinho)
+function mostrarAviso(msg){
+  let aviso = document.getElementById('avisoToast');
+  if(!aviso){
+    aviso = document.createElement('div');
+    aviso.id = 'avisoToast';
+    aviso.className = 'aviso-toast';
+    document.body.appendChild(aviso);
+  }
+  aviso.textContent = msg;
+  aviso.classList.add('visivel');
+  clearTimeout(mostrarAviso.timer);
+  mostrarAviso.timer = setTimeout(() => aviso.classList.remove('visivel'), 3500);
+}
+
+// Cria uma tarefa simples (categoria "Geral", sem pasta/meta) a partir de um texto.
+// Os mesmos campos do addTask() — só que sem ler o formulário da tela.
+function criarTarefaPorTexto(texto, freq){
+  const maiorOrdem = tasks.reduce((max, t) => Math.max(max, t.ordem || 0), 0);
+  const novaTarefa = {
+    id: 't' + Date.now() + Math.random().toString(36).slice(2,7),
+    text: texto,
+    category: 'Geral',
+    pasta: null,
+    regime: null,
+    meta: null,
+    diasAtivos: null,
+    freq: freq,
+    doneKey: null,
+    ordem: maiorOrdem + 1
+  };
+  tasks.push(novaTarefa);
+  render();
+  salvarTarefa(novaTarefa);
+}
+
+function abrirVoz(autoIniciar){
+  // some com o aviso da criação anterior, pra ele não cobrir os botões do painel
+  const avisoAnterior = document.getElementById('avisoToast');
+  if(avisoAnterior) avisoAnterior.classList.remove('visivel');
+  abrirPainelDeVoz({
+    criarTarefa: criarTarefaPorTexto,
+    criarEvento: adicionarEvento,   // o mesmo que o formulário do Calendário usa
+    avisar: mostrarAviso
+  }, { autoIniciar });
+}
+document.getElementById('micBtn').onclick = () => abrirVoz(false);
+
 // O Regime (meio período/integral) só faz sentido pra tarefas de "Trabalho",
 // então ele fica escondido até a pessoa digitar essa categoria.
 const categoryInputEl = document.getElementById('newTaskCategory');
@@ -2334,6 +2387,7 @@ document.getElementById('btnAtivarNotificacoes').onclick = ativarNotificacoes;
 // Segurar o ícone do Rotina abre o app com um parâmetro no endereço, por exemplo
 // "?tela=grade" ou "?acao=nova". Aqui a gente lê esse parâmetro e age.
 let abrirNovaTarefaAoEntrar = false;
+let abrirVozAoEntrar = false;
 (function aplicarAtalhoDoEndereco(){
   const params = new URLSearchParams(location.search);
   const tela = params.get('tela');
@@ -2347,6 +2401,8 @@ let abrirNovaTarefaAoEntrar = false;
   }
   // ?acao=nova → depois do login, leva o cursor pro campo "Nova tarefa..."
   if(acao === 'nova') abrirNovaTarefaAoEntrar = true;
+  // ?acao=voz → depois do login, abre o painel de criar por voz já ouvindo
+  if(acao === 'voz') abrirVozAoEntrar = true;
 
   // limpa o endereço pra um refresh (F5) não repetir o atalho
   history.replaceState(null, '', location.pathname);
@@ -2357,6 +2413,10 @@ onAuthStateChanged(auth, async (user) => {
   if(user){
     loginScreen.classList.add('hidden');
     appScreen.classList.remove('hidden');
+    if(abrirVozAoEntrar){
+      abrirVozAoEntrar = false;
+      abrirVoz(true);
+    }
     if(abrirNovaTarefaAoEntrar){
       abrirNovaTarefaAoEntrar = false;
       const campo = document.getElementById('newTaskText');
