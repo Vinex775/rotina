@@ -568,8 +568,14 @@
     padding: 0 4px;
     font-size: 10px;
     overflow: hidden;
-    text-overflow: ellipsis;
+    text-overflow: clip;   /* texto longo é só cortado, sem "..." (igual ao Google Agenda) */
     white-space: nowrap;
+  }
+  /* quando a faixa de baixo está livre, o título pode usar duas linhas */
+  .cal-evento.duas-linhas{
+    height: 32px;
+    white-space: normal;
+    overflow-wrap: break-word;
   }
   .cal-evento.multi{ font-weight: bold; }
   @media (max-width: 480px){
@@ -1089,4 +1095,57 @@
   }
   .cal-form-row .cal-cor-opcao.selecionada{
     box-shadow: 0 0 0 2px var(--ink);
+  }
+
+  /* ---------- Anotações do evento (formulário do Calendário) ---------- */
+  .cal-form-notas textarea{
+    flex: 1 1 100%;
+    font-family: Georgia, serif;
+    font-size: 14px;
+    line-height: 1.4;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    border-radius: 3px;
+    resize: vertical;
+    min-height: 60px;
+  }
+
+  /* ---------- Descrição das tarefas (Lista de tarefas) ---------- */
+  .task-desc-ico{
+    font-size: 12px;
+    opacity: 0.75;
+  }
+  ul.tasks li.descricao-panel{
+    display: block;
+    cursor: default;
+    background: var(--bg);
+    padding: 12px 14px 14px 44px;
+    border-bottom: 1px dashed var(--rule);
+  }
+  .descricao-texto{
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--ink);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .descricao-texto a{ color: var(--pasta); }
+  .descricao-input{
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 8px 0 10px;
+    font-family: Georgia, serif;
+    font-size: 14px;
+    line-height: 1.4;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    border-radius: 3px;
+    resize: vertical;
+    min-height: 70px;
+  }
+  @media (max-width: 480px){
+    ul.tasks li.descricao-panel{ padding-left: 22px; }
   }

@@ -1,4 +1,4 @@
-<!-- Rotina — versão 8.7-dev (Calendário: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.0-dev (Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -914,6 +914,13 @@ function renderCalendario(){
     const { segmentos, totalFaixas } = montarSegmentosDaSemana(ano, mes, dias);
     const faixas = Math.max(totalFaixas, faixasMinimas);
 
+    // Um evento pode ocupar DUAS linhas (título quebrando pra de baixo) quando a
+    // faixa logo abaixo existe e está livre em todas as colunas que ele cobre.
+    // Se tiver outro evento embaixo, fica em uma linha só, com o texto cortado.
+    const livreAbaixo = seg =>
+      seg.faixa + 1 < faixas &&
+      !segmentos.some(o => o.faixa === seg.faixa + 1 && !(o.c1 < seg.c0 || o.c0 > seg.c1));
+
     // cada semana é uma grade de 7 colunas: linha 1 = número do dia,
     // linhas seguintes = as faixas de eventos
     const linha = document.createElement('div');
@@ -956,7 +963,14 @@ function renderCalendario(){
       tag.className = 'cal-evento' + (seg.multi ? ' multi' : '');
       tag.textContent = seg.ev.titulo;
       tag.style.gridColumn = (seg.c0 + 1) + ' / span ' + (seg.c1 - seg.c0 + 1);
-      tag.style.gridRow = String(seg.faixa + 2);
+      if(livreAbaixo(seg)){
+        tag.classList.add('duas-linhas');
+        tag.style.gridRow = (seg.faixa + 2) + ' / span 2';
+      }else{
+        tag.style.gridRow = String(seg.faixa + 2);
+      }
+      // passando o mouse mostra o título completo e as anotações, se houver
+      tag.title = seg.ev.notas ? seg.ev.titulo + '\n\n' + seg.ev.notas : seg.ev.titulo;
 
       const cor = corDoEvento(seg.ev);
       if(seg.multi){
@@ -1120,6 +1134,16 @@ function buildEventoFormArea(){
   });
   painel.appendChild(linhaCor);
 
+  // ---- linha: anotações do evento (igual à "descrição" do Google Agenda) ----
+  const linhaNotas = document.createElement('div');
+  linhaNotas.className = 'cal-form-row cal-form-notas';
+  const inputNotas = document.createElement('textarea');
+  inputNotas.rows = 3;
+  inputNotas.placeholder = 'Anotações (opcional): endereço, link, o que levar...';
+  inputNotas.value = (eventoAtual && eventoAtual.notas) || '';
+  linhaNotas.appendChild(inputNotas);
+  painel.appendChild(linhaNotas);
+
   // ---- botões ----
   const acoes = document.createElement('div');
   acoes.className = 'cal-form-actions';
@@ -1133,7 +1157,8 @@ function buildEventoFormArea(){
       dataFim: checkVariosDias.checked ? inputFim.value : inputInicio.value,
       horario: checkDiaTodo.checked ? null : inputHorario.value,
       recorrencia: selectRecorrencia.value,
-      cor: corSelecionada
+      cor: corSelecionada,
+      notas: inputNotas.value.trim()
     };
     if(!dadosEvento.dataInicio) return; // sem data não tem como salvar
     if(editando){
@@ -1256,11 +1281,20 @@ function render(){
         const temPassos = task.subtasks && task.subtasks.length > 0;
 
         const check = document.createElement('div');
+        const comDescricao = temDescricao(task);
+        const abrirOuFecharClique = () => {
+          subtasksOpenId = (subtasksOpenId === task.id) ? null : task.id;
+          render();
+        };
         if(bloqueadaPorMeta){
           // travada: mostra o progresso da meta no lugar do check, sem
           // dar pra marcar enquanto não bater o valor alvo
           check.className = 'check meta-locked';
           check.textContent = '🔒 ' + task.meta.atual.toLocaleString('pt-BR') + '/' + task.meta.alvo.toLocaleString('pt-BR');
+          if(comDescricao){
+            li.onclick = abrirOuFecharClique;
+            li.style.cursor = 'pointer';
+          }
         } else if(temPassos){
           const feitos = task.subtasks.filter(s => s.done).length;
           check.className = 'check pipeline-badge' + (done ? ' done' : '');
@@ -1280,7 +1314,9 @@ function render(){
           // clicar em qualquer parte do retângulo da tarefa também marca/desmarca —
           // não só no quadradinho pequeno. Editar/mover/remover têm seu próprio
           // stopPropagation, então continuam funcionando normalmente por cima disso.
-          li.onclick = () => toggleTask(task.id);
+          // EXCEÇÃO: tarefa com descrição — o clique na linha abre/fecha a
+          // descrição, e só o quadradinho marca como feita.
+          li.onclick = comDescricao ? abrirOuFecharClique : () => toggleTask(task.id);
           li.style.cursor = 'pointer';
         }
 
@@ -1308,6 +1344,14 @@ function render(){
 
         const tagsWrap = document.createElement('div');
         tagsWrap.className = 'task-tags';
+
+        if(comDescricao){
+          const descTag = document.createElement('span');
+          descTag.className = 'task-desc-ico';
+          descTag.textContent = '📝';
+          descTag.title = 'Tem descrição — clique na tarefa para ver';
+          tagsWrap.appendChild(descTag);
+        }
 
         if(selectedCategory === 'all'){
           const catTag = document.createElement('span');
@@ -1378,11 +1422,18 @@ function render(){
           ul.appendChild(buildPastaPanel(task));
           if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
           ul.appendChild(task.meta ? buildMetaPanel(task) : buildAddMetaPanel(task));
+          ul.appendChild(buildDescricaoPanel(task));
+        }
+        // a descrição aberta pelo clique aparece acima dos mini-passos (no "editar"
+        // ela já está no próprio painel de edição, então não duplica)
+        if(subtasksOpenId === task.id && expandedTaskId !== task.id && comDescricao){
+          ul.appendChild(buildDescricaoView(task));
         }
         // os mini-passos aparecem tanto no "editar" completo quanto no clique
         // direto na tarefa mãe — mas os dois não duplicam o painel se os dois
-        // estiverem "abertos" ao mesmo tempo por acaso
-        if(expandedTaskId === task.id || subtasksOpenId === task.id){
+        // estiverem "abertos" ao mesmo tempo por acaso. Tarefa só com descrição
+        // (sem passos) não mostra o painel de passos ao ser aberta pelo clique.
+        if(expandedTaskId === task.id || (subtasksOpenId === task.id && temPassos)){
           ul.appendChild(buildSubtaskPanel(task, expandedTaskId === task.id));
         }
       });
@@ -1414,9 +1465,95 @@ function renomearTarefa(taskId, novoTexto){
   const task = tasks.find(t => t.id === taskId);
   if(!task) return;
   const texto = novoTexto.trim();
-  if(texto) task.text = texto; // se apagar tudo, mantém o nome antigo em vez de ficar em branco
+  // nome não mudou: não faz nada. Antes sempre redesenhava a lista aqui, e como
+  // esse campo perde o foco quando você clica em outro campo do "editar" (descrição,
+  // pasta, meta...), o redesenho trocava o campo clicado por um novo e o clique se perdia.
+  if(!texto || texto === task.text) return;
+  task.text = texto; // se apagar tudo, mantém o nome antigo em vez de ficar em branco
   render();
   salvarTarefa(task);
+}
+
+// ---------- Descrição da tarefa ----------
+// Uma tarefa pode ter uma descrição (o que precisa lembrar antes de fazer).
+// Quando tem, clicar na linha da tarefa ABRE/FECHA a descrição em vez de
+// marcar como feita (igual à tarefa mãe com passos); marcar passa a ser só
+// pelo quadradinho da esquerda.
+function temDescricao(task){
+  return !!(task.descricao && task.descricao.trim());
+}
+
+// Salva a descrição. 'redesenhar' = false quando vem do blur do campo (redesenhar
+// no meio de um clique no botão "salvar" faria o clique se perder).
+function salvarDescricao(taskId, texto, redesenhar){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const novo = texto.trim();
+  if((task.descricao || '') === novo) { if(redesenhar) render(); return; }
+  task.descricao = novo;
+  // sem descrição e sem passos, não há mais nada pra mostrar ao clicar
+  if(!novo && !(task.subtasks && task.subtasks.length > 0) && subtasksOpenId === task.id){
+    subtasksOpenId = null;
+  }
+  if(redesenhar) render();
+  salvarTarefa(task);
+}
+
+// Painel do "editar": caixa de texto pra escrever a descrição
+function buildDescricaoPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel descricao-edit';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const label = document.createElement('div');
+  label.className = 'meta-panel-row';
+  label.textContent = 'descrição (aparece ao clicar na tarefa):';
+  panel.appendChild(label);
+
+  const area = document.createElement('textarea');
+  area.className = 'descricao-input';
+  area.rows = 4;
+  area.placeholder = 'O que você precisa lembrar antes de fazer essa tarefa...';
+  area.value = task.descricao || '';
+  area.addEventListener('blur', () => salvarDescricao(task.id, area.value, false));
+  panel.appendChild(area);
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+  const salvarBtn = document.createElement('button');
+  salvarBtn.textContent = 'salvar descrição';
+  salvarBtn.onclick = () => salvarDescricao(task.id, area.value, true);
+  row.appendChild(salvarBtn);
+  panel.appendChild(row);
+  return panel;
+}
+
+// Coloca o texto dentro do elemento, transformando endereços http(s) em links
+function textoComLinks(container, texto){
+  texto.split(/(https?:\/\/[^\s]+)/g).forEach(parte => {
+    if(/^https?:\/\//.test(parte)){
+      const a = document.createElement('a');
+      a.href = parte;
+      a.textContent = parte;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      container.appendChild(a);
+    }else{
+      container.appendChild(document.createTextNode(parte));
+    }
+  });
+}
+
+// Painel de leitura: a descrição que abre ao clicar na tarefa
+function buildDescricaoView(task){
+  const panel = document.createElement('li');
+  panel.className = 'descricao-panel';
+  panel.onclick = (e) => e.stopPropagation();
+  const texto = document.createElement('div');
+  texto.className = 'descricao-texto';
+  textoComLinks(texto, task.descricao);
+  panel.appendChild(texto);
+  return panel;
 }
 
 function moverTarefaParaPasta(taskId, novoNome){
