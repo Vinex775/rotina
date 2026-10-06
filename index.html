@@ -1,4 +1,4 @@
-<!-- Rotina — versão 9.0-dev (Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.1-dev (correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -157,7 +157,7 @@ import { ativarNotificacoes } from './notifications.js';
 import {
   tarefasColRef, blocosColRef, eventosColRef, usuarioDocRef,
   isApplyingRemoteData, salvarModo, migrarDadosAntigosSeNecessario,
-  comecarAEscutarDados, pararDeEscutar
+  comecarAEscutarDados, pararDeEscutar, manutencaoLiberada
 } from './sync.js';
 
 
@@ -2229,6 +2229,8 @@ document.getElementById('diaSeletor').addEventListener('click', e => {
 
 setInterval(() => {
   renderTodayLabel();
+  // sem confirmação do servidor ainda (ou offline): só redesenha, sem manutenção
+  if(!manutencaoLiberada()){ render(); return; }
   const tarefasComAtraso = checkMissedTasks();
   const idsParaApagar = cleanupOnceTasks();
   const tarefasComPipelineResetado = resetExpiredPipelines();

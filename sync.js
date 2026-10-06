@@ -88,6 +88,15 @@ window.addEventListener('beforeunload', (e) => {
   }
 });
 
+// Só vale fazer a manutenção das tarefas (marcar atrasadas, reiniciar passos/metas,
+// apagar únicas) com dados CONFIRMADOS pelo servidor. O Firestore entrega primeiro
+// uma cópia do cache local do aparelho, que pode estar defasada (ex.: você marcou a
+// tarefa no celular e este aparelho ainda não ficou sabendo). Fazer a manutenção em
+// cima dessa cópia velha e gravar o resultado sobrescrevia o que estava certo no
+// servidor — era o que deixava tarefas feitas na semana passada com contorno vermelho.
+let dadosDoServidor = false;
+export function manutencaoLiberada(){ return dadosDoServidor; }
+
 let unsubscribeModo = null;
 let unsubscribeTarefas = null;
 let unsubscribeBlocos = null;
@@ -119,6 +128,15 @@ export function comecarAEscutarDados(acoes){
 
     document.getElementById('loadingMsg').style.display = 'none';
     atualizarStatusSincronizacao();
+
+    // veio só do cache local: mostra na tela, mas não mexe em nada nem grava.
+    // Quando o servidor responder, este mesmo código roda de novo (includeMetadataChanges).
+    dadosDoServidor = !snap.metadata.fromCache;
+    if(!dadosDoServidor){
+      acoes.render();
+      isApplyingRemoteData = false;
+      return;
+    }
 
     const tarefasComAtraso = acoes.checkMissedTasks();
     const idsParaApagar = acoes.cleanupOnceTasks();
@@ -154,6 +172,7 @@ export function comecarAEscutarDados(acoes){
 }
 
 export function pararDeEscutar(){
+  dadosDoServidor = false;
   if(unsubscribeModo){ unsubscribeModo(); unsubscribeModo = null; }
   if(unsubscribeTarefas){ unsubscribeTarefas(); unsubscribeTarefas = null; }
   if(unsubscribeBlocos){ unsubscribeBlocos(); unsubscribeBlocos = null; }
