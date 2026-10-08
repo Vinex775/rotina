@@ -5,7 +5,9 @@
 // 'messaging' DAQUI, em vez de inicializar o app de novo — senão viraria
 // mais de uma conexão concorrendo pelo mesmo projeto.
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js';
-import { getAuth } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
+import {
+  initializeAuth, indexedDBLocalPersistence, browserLocalPersistence
+} from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
@@ -22,7 +24,12 @@ const firebaseConfig = {
 };
 
 export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+// Lembrar o login neste aparelho: tenta guardar a sessão no IndexedDB e, se o
+// navegador não permitir, cai para o localStorage. Só sai ao clicar em "Sair"
+// ou se o navegador apagar os dados do site.
+export const auth = initializeAuth(app, {
+  persistence: [indexedDBLocalPersistence, browserLocalPersistence]
+});
 
 // Antes: const db = getFirestore(app);
 // Agora: guardamos um cache persistente em disco (IndexedDB), não só na

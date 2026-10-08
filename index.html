@@ -13,8 +13,16 @@
 </head>
 <body>
 
+<!-- ===== TELA DE CARREGAMENTO =====
+     Aparece enquanto o Firebase ainda está lendo a sessão salva no aparelho.
+     Sem ela, a tela de login piscava por um instante mesmo com você já logado. -->
+<div class="login-wrap" id="carregandoScreen">
+  <h1>Rotina</h1>
+  <div class="login-sub">carregando...</div>
+</div>
+
 <!-- ===== TELA DE LOGIN ===== -->
-<div class="login-wrap" id="loginScreen">
+<div class="login-wrap hidden" id="loginScreen">
   <h1>Rotina</h1>
   <div class="login-sub">entre com o mesmo e-mail e senha em todos os seus dispositivos</div>
   <input type="email" id="loginEmail" placeholder="seu e-mail" autocomplete="email">
@@ -2410,6 +2418,8 @@ let abrirVozAoEntrar = false;
 
 onAuthStateChanged(auth, async (user) => {
   setCurrentUser(user);
+  // o Firebase já respondeu se há sessão salva: some o "carregando..."
+  document.getElementById('carregandoScreen').classList.add('hidden');
   if(user){
     loginScreen.classList.add('hidden');
     appScreen.classList.remove('hidden');
