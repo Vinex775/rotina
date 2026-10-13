@@ -19,11 +19,36 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Isso é chamado quando chega uma notificação e o app está em segundo plano
+// Isso é chamado quando chega uma notificação e o app está em segundo plano.
+//
+// Por que tanta atenção aqui: antes, o servidor mandava a mensagem com o campo
+// "notification" (que o próprio navegador já mostra sozinho) E este código
+// chamava showNotification de novo — o resultado eram duas notificações.
+// Agora o servidor manda só "data" e quem mostra é ESTE código, uma única vez.
 messaging.onBackgroundMessage((payload) => {
-  const { title, body } = payload.notification || {};
-  self.registration.showNotification(title || "Rotina", {
-    body: body || "Você tem uma tarefa pendente.",
-    icon: "/icone-rotina.png", // troque pelo ícone que preferir, se tiver
+  // Mensagem antiga, com "notification": o navegador já mostrou. Não repete.
+  if (payload.notification) return;
+
+  const data = payload.data || {};
+  self.registration.showNotification(data.title || "Rotina", {
+    body: data.body || "Você tem uma tarefa pendente.",
+    // Caminhos relativos ao service worker, então funcionam em /rotina/ no GitHub Pages
+    icon: "icon-192.png",
+    // Duas notificações com o mesmo "tag" se substituem em vez de aparecerem as
+    // duas (cobre o caso de o mesmo aparelho ter mais de um token cadastrado).
+    tag: data.tag || undefined,
   });
+});
+
+// Tocar na notificação: abre o Rotina (ou volta para a aba que já está aberta).
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((abas) => {
+      for (const aba of abas) {
+        if ("focus" in aba) return aba.focus();
+      }
+      return clients.openWindow("./");
+    })
+  );
 });
