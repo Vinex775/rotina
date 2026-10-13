@@ -13,7 +13,7 @@ const FUSO = "America/Sao_Paulo";
 // rodou. As janelas de execuções seguidas se sobrepõem de propósito; quem
 // evita avisar duas vezes é o campo "ultimaNotificacao" gravado no bloco.
 const MINUTOS_ANTES_DO_INICIO = 10;   // avisa até 10 min antes de começar
-const MINUTOS_APOS_O_INICIO = 20;     // e ainda avisa se começou há até 20 min
+const MINUTOS_APOS_O_INICIO = 30;     // e ainda avisa se começou há até 30 min
 
 function pad(n) { return String(n).padStart(2, "0"); }
 
@@ -42,6 +42,15 @@ function minutosAteOInicio(inicio, agoraMin) {
   const inicioMin = paraMinutos(inicio);
   if (inicioMin === null) return null;
   return inicioMin - agoraMin;
+}
+
+// Igual à de cima, mas sabendo que o bloco pode cair em outro dia:
+// deslocamento = -1 (ontem), 0 (hoje) ou +1 (amanhã). Assim um bloco às 00:05
+// já pode ser avisado às 23:55, e um bloco às 23:50 ainda às 00:10.
+function minutosAteOBloco(inicio, agoraMin, deslocamento) {
+  const inicioMin = paraMinutos(inicio);
+  if (inicioMin === null) return null;
+  return deslocamento * 24 * 60 + inicioMin - agoraMin;
 }
 
 function estaNaJanela(diferenca) {
@@ -123,23 +132,34 @@ async function main() {
   let totalEnviadas = 0;
 
   for (const usuarioDoc of usuariosSnap.docs) {
-    const tokens = usuarioDoc.data().tokensNotificacao || [];
+    // Set tira tokens repetidos (o mesmo aparelho cadastrado duas vezes)
+    const tokens = [...new Set(usuarioDoc.data().tokensNotificacao || [])];
     if (tokens.length === 0) continue; // ninguém pra notificar aqui
 
-    // Só os blocos de hoje (o campo "dia" é o dia da semana do bloco)
+    // Blocos de ontem, hoje e amanhã (o campo "dia" é o dia da semana do
+    // bloco). Olhar os três é o que permite avisar certo na virada da meia-noite.
+    const diasRelevantes = [-1, 0, 1].map((o) => (diaDaSemana + o + 7) % 7);
     const blocosSnap = await usuarioDoc.ref
       .collection("blocos")
-      .where("dia", "==", diaDaSemana)
+      .where("dia", "in", diasRelevantes)
       .get();
 
     for (const blocoDoc of blocosSnap.docs) {
       const bloco = blocoDoc.data();
 
-      const diferenca = minutosAteOInicio(bloco.inicio, agoraMin);
+      // Este bloco cai ontem (-1), hoje (0) ou amanhã (+1) em relação a agora?
+      const deslocamento = [-1, 0, 1].find((o) => (diaDaSemana + o + 7) % 7 === bloco.dia);
+      if (deslocamento === undefined) continue;
+
+      const diferenca = minutosAteOBloco(bloco.inicio, agoraMin, deslocamento);
       if (!estaNaJanela(diferenca)) continue;
 
-      // Já avisamos este bloco hoje? Então pula (evita repetir entre execuções)
-      if (bloco.ultimaNotificacao === hoje) continue;
+      // Data real em que este bloco acontece (a "chave" que marca o aviso feito)
+      const dataDoBloco = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + deslocamento);
+      const chaveDoBloco = dailyKey(dataDoBloco);
+
+      // Já avisamos este bloco neste dia? Então pula (evita repetir entre execuções)
+      if (bloco.ultimaNotificacao === chaveDoBloco) continue;
 
       let texto = bloco.texto || "Você tem um bloco na sua grade.";
 
@@ -153,16 +173,53 @@ async function main() {
 
         if (tarefaDoc.exists) {
           const tarefa = tarefaDoc.data();
-          if (tarefaEstaConcluida(tarefa, agora)) continue; // já feita, pula
+          if (tarefaEstaConcluida(tarefa, dataDoBloco)) continue; // já feita, pula
           texto = tarefa.text || texto;
         }
       }
 
       const corpo = montarCorpo(bloco.inicio, diferenca, texto);
 
+      // RESERVA o aviso ANTES de enviar. Antes o script só gravava
+      // "ultimaNotificacao" depois do envio; se duas execuções rodassem ao
+      // mesmo tempo, as duas passavam pela checagem acima e as duas enviavam.
+      // A transação garante que só UMA execução consiga reservar.
+      const reservado = await db.runTransaction(async (t) => {
+        const atual = await t.get(blocoDoc.ref);
+        if (!atual.exists || atual.data().ultimaNotificacao === chaveDoBloco) return false;
+        t.update(blocoDoc.ref, { ultimaNotificacao: chaveDoBloco });
+        return true;
+      });
+      if (!reservado) continue; // outra execução já cuidou deste aviso
+
+      // Se o envio falhar em todos os aparelhos, devolve a reserva pra a
+      // próxima execução tentar de novo.
+      const liberarReserva = async () => {
+        try {
+          await blocoDoc.ref.update({
+            ultimaNotificacao:
+              bloco.ultimaNotificacao !== undefined ? bloco.ultimaNotificacao : FieldValue.delete(),
+          });
+        } catch (e) {
+          console.error("Falha ao liberar a reserva do aviso:", e);
+        }
+      };
+
       try {
+        // Mensagem só com "data" (sem o campo "notification"): quem mostra a
+        // notificação é o firebase-messaging-sw.js, uma única vez.
+        // Urgency/priority "high" pedem entrega imediata (o Android costuma
+        // segurar avisos comuns quando está economizando bateria) e o TTL
+        // descarta o aviso se o aparelho ficar 30 min sem receber, em vez de
+        // entregar um "Começa às 10:00" ao meio-dia.
         const resposta = await getMessaging().sendEachForMulticast({
-          notification: { title: "Rotina", body: corpo },
+          data: {
+            title: "Rotina",
+            body: corpo,
+            tag: `bloco-${blocoDoc.id}-${chaveDoBloco}`,
+          },
+          webpush: { headers: { Urgency: "high", TTL: "1800" } },
+          android: { priority: "high" },
           tokens, // todos os dispositivos desse usuário de uma vez
         });
 
@@ -191,14 +248,16 @@ async function main() {
           console.log(`Removidos ${invalidos.length} token(s) inválido(s).`);
         }
 
-        // Só marca como "avisado hoje" se pelo menos um aparelho recebeu;
-        // se falhou em todos, a próxima execução tenta de novo.
+        // O aviso já está reservado (marcado como feito). Se nenhum aparelho
+        // recebeu, desfaz a reserva pra a próxima execução tentar de novo.
         if (resposta.successCount > 0) {
-          await blocoDoc.ref.update({ ultimaNotificacao: hoje });
           totalEnviadas++;
+        } else {
+          await liberarReserva();
         }
       } catch (erro) {
         console.error(`Erro ao notificar ${usuarioDoc.id}:`, erro);
+        await liberarReserva();
       }
     }
   }
@@ -207,7 +266,7 @@ async function main() {
 }
 
 module.exports = {
-  paraMinutos, minutosAteOInicio, estaNaJanela, montarCorpo,
+  paraMinutos, minutosAteOInicio, minutosAteOBloco, estaNaJanela, montarCorpo,
   dailyKey, weeklyKey, monthlyKey, currentKey, tarefaEstaConcluida,
 };
 
