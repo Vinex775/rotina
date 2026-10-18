@@ -847,6 +847,20 @@
     border-radius: 3px;
     max-width: 160px;
   }
+  /* Campo "quando avisar": lista pronta + número e unidade quando "personalizado..." */
+  .aviso-seletor{
+    display:flex;
+    gap: 6px;
+    align-items:center;
+  }
+  .bloco-form input[type=number]{
+    width: 72px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 6px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+  }
   .bloco-form button{
     font-family: 'Courier New', monospace;
     font-size: 11px;
