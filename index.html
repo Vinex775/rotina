@@ -1,4 +1,4 @@
-<!-- Rotina — versão 9.4-dev (Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.5-dev (Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1191,6 +1191,151 @@ function renderCalendario(){
 
 // Monta o formulário de criar (eventoFormAbertoParaDia) ou editar
 // (eventoEditandoId) um evento. Só um dos dois fica ativo por vez.
+// ---------- Aviso dos eventos do Calendário ----------
+// Cada evento pode te avisar por notificação, de dois jeitos (campos salvos no evento):
+//   • N DIAS ANTES, num horário do dia: avisoDias (0 = no próprio dia) + avisoHora ("09:00")
+//   • X MINUTOS ANTES do horário do evento (só vale se o evento tem horário): avisoMinutos
+// Nenhum dos dois = sem aviso (é o caso dos eventos antigos). avisoAte é o último dia
+// em que ainda pode haver aviso ('9999-12-31' nos eventos que se repetem): o Worker usa
+// esse campo para ler só os eventos que ainda importam (menos leituras no Firestore).
+// ATENÇÃO: quem manda a notificação é o Worker do Cloudflare, que tem os MESMOS limites
+// (EVENTO_AVISO_DIAS_MAX e EVENTO_AVISO_MIN_MAX no worker.js). Se mudar aqui, mude lá.
+const EVENTO_AVISO_DIAS_MAX = 60;
+const EVENTO_AVISO_MIN_MAX = 720;          // 12 h
+const EVENTO_AVISO_HORA_PADRAO = '09:00';
+const EVENTO_AVISO_ATE_SEMPRE = '9999-12-31';
+const CAMPOS_AVISO_EVENTO = ['avisoDias', 'avisoHora', 'avisoMinutos', 'avisoAte'];
+
+// O aviso efetivo de um evento: { tipo: 'nenhum' } | { tipo: 'dias', dias, hora } | { tipo: 'min', minutos }
+function avisoDoEvento(ev){
+  if(ev && ev.horario && Number.isInteger(ev.avisoMinutos) && ev.avisoMinutos >= 0){
+    return { tipo: 'min', minutos: Math.min(ev.avisoMinutos, EVENTO_AVISO_MIN_MAX) };
+  }
+  if(ev && Number.isInteger(ev.avisoDias) && ev.avisoDias >= 0){
+    const hora = /^\d{2}:\d{2}$/.test(ev.avisoHora || '') ? ev.avisoHora : EVENTO_AVISO_HORA_PADRAO;
+    return { tipo: 'dias', dias: Math.min(ev.avisoDias, EVENTO_AVISO_DIAS_MAX), hora };
+  }
+  return { tipo: 'nenhum' };
+}
+
+// Se qualquer item desta "assinatura" mudar ao editar o evento, o aviso já enviado
+// (campo ultimaNotificacao, gravado pelo Worker) deixa de valer e ele pode avisar de novo.
+function assinaturaAvisoEvento(ev){
+  return [ev.dataInicio, ev.recorrencia || 'nenhuma', ev.horario || '',
+    ev.avisoDias, ev.avisoHora, ev.avisoMinutos].join('|');
+}
+
+// Campo "Avisar:" do formulário do evento. O resultado fica em elemento.obterAviso()
+// (usado ao clicar em Salvar) e elemento.definirTemHorario(true/false) liga ou desliga
+// a opção "antes do horário", que só faz sentido se o evento tiver um horário.
+function criarSeletorDeAvisoEvento(eventoAtual){
+  // evento novo já vem com "1 dia antes, às 09:00"; evento antigo sem aviso fica sem aviso
+  const inicial = eventoAtual
+    ? avisoDoEvento(eventoAtual)
+    : { tipo: 'dias', dias: 1, hora: EVENTO_AVISO_HORA_PADRAO };
+
+  const wrap = document.createElement('div');
+  wrap.className = 'aviso-evento';
+
+  const select = document.createElement('select');
+  select.title = 'quando avisar por notificação';
+  const optNenhum = document.createElement('option');
+  optNenhum.value = 'nenhum'; optNenhum.textContent = 'sem aviso';
+  const optDias = document.createElement('option');
+  optDias.value = 'dias'; optDias.textContent = 'avisar dias antes';
+  const optMin = document.createElement('option');
+  optMin.value = 'min'; optMin.textContent = 'avisar antes do horário';
+  [optNenhum, optDias, optMin].forEach(o => select.appendChild(o));
+  select.value = inicial.tipo;
+
+  // ---- "N dias antes, às HH:MM" ----
+  const grupoDias = document.createElement('span');
+  grupoDias.className = 'aviso-evento-grupo';
+  const numDias = document.createElement('input');
+  numDias.type = 'number'; numDias.min = '0'; numDias.max = String(EVENTO_AVISO_DIAS_MAX); numDias.step = '1';
+  numDias.value = String(inicial.tipo === 'dias' ? inicial.dias : 1);
+  const horaAviso = document.createElement('input');
+  horaAviso.type = 'time';
+  horaAviso.value = inicial.tipo === 'dias' ? inicial.hora : EVENTO_AVISO_HORA_PADRAO;
+  grupoDias.appendChild(numDias);
+  grupoDias.appendChild(document.createTextNode(' dia(s) antes (0 = no dia), às '));
+  grupoDias.appendChild(horaAviso);
+
+  // ---- "X minutos/horas antes do horário do evento" ----
+  const grupoMin = document.createElement('span');
+  grupoMin.className = 'aviso-evento-grupo';
+  const numMin = document.createElement('input');
+  numMin.type = 'number'; numMin.min = '0'; numMin.step = '1';
+  const unidade = document.createElement('select');
+  [['min', 'minutos'], ['h', 'horas']].forEach(([valor, nome]) => {
+    const opt = document.createElement('option');
+    opt.value = valor; opt.textContent = nome;
+    unidade.appendChild(opt);
+  });
+  if(inicial.tipo === 'min' && inicial.minutos > 0 && inicial.minutos % 60 === 0){
+    numMin.value = String(inicial.minutos / 60); unidade.value = 'h';
+  }else if(inicial.tipo === 'min'){
+    numMin.value = String(inicial.minutos); unidade.value = 'min';
+  }else{
+    numMin.value = '30'; unidade.value = 'min';
+  }
+  grupoMin.appendChild(numMin);
+  grupoMin.appendChild(unidade);
+  grupoMin.appendChild(document.createTextNode(' antes do horário do evento'));
+
+  function diasEscolhidos(){
+    if(numDias.value.trim() === '') return 1;
+    const n = Math.floor(Number(numDias.value));
+    if(!Number.isFinite(n) || n < 0) return 1;
+    return Math.min(n, EVENTO_AVISO_DIAS_MAX);
+  }
+  function minutosEscolhidos(){
+    if(numMin.value.trim() === '') return 30;
+    const n = Math.floor(Number(numMin.value));
+    if(!Number.isFinite(n) || n < 0) return 30;
+    return Math.min(n * (unidade.value === 'h' ? 60 : 1), EVENTO_AVISO_MIN_MAX);
+  }
+  function atualizarVisibilidade(){
+    grupoDias.classList.toggle('hidden', select.value !== 'dias');
+    grupoMin.classList.toggle('hidden', select.value !== 'min');
+  }
+
+  select.onchange = atualizarVisibilidade;
+  // se digitou mais que o máximo, mostra o valor já ajustado
+  numDias.onchange = () => { numDias.value = String(diasEscolhidos()); };
+  const ajustarMinutos = () => {
+    if(numMin.value.trim() === '') return;
+    const total = minutosEscolhidos();
+    numMin.value = String(unidade.value === 'h' ? total / 60 : total);
+  };
+  numMin.onchange = ajustarMinutos;
+  unidade.onchange = ajustarMinutos;
+  atualizarVisibilidade();
+
+  wrap.appendChild(select);
+  wrap.appendChild(grupoDias);
+  wrap.appendChild(grupoMin);
+
+  wrap.definirTemHorario = (tem) => {
+    optMin.disabled = !tem;
+    optMin.textContent = tem ? 'avisar antes do horário' : 'avisar antes do horário (defina um horário)';
+    if(!tem && select.value === 'min'){
+      select.value = 'dias';
+      atualizarVisibilidade();
+    }
+  };
+  wrap.obterAviso = () => {
+    if(select.value === 'dias'){
+      return { avisoDias: diasEscolhidos(), avisoHora: horaAviso.value || EVENTO_AVISO_HORA_PADRAO };
+    }
+    if(select.value === 'min' && !optMin.disabled){
+      return { avisoMinutos: minutosEscolhidos() };
+    }
+    return {};
+  };
+  return wrap;
+}
+
 function buildEventoFormArea(){
   const area = document.getElementById('calendarioFormArea');
   area.innerHTML = '';
@@ -1212,6 +1357,8 @@ function buildEventoFormArea(){
   titulo.style.marginBottom = '10px';
   titulo.style.fontWeight = 'bold';
   painel.appendChild(titulo);
+
+  const seletorAviso = criarSeletorDeAvisoEvento(eventoAtual);
 
   // ---- linha: título do evento ----
   const linhaTitulo = document.createElement('div');
@@ -1272,9 +1419,16 @@ function buildEventoFormArea(){
   inputHorario.style.display = ehDiaTodo ? 'none' : '';
   linhaHorario.appendChild(inputHorario);
 
+  // "avisar antes do horário" só existe quando o evento tem um horário preenchido
+  const atualizarAvisoPorHorario = () => {
+    seletorAviso.definirTemHorario(!checkDiaTodo.checked && inputHorario.value !== '');
+  };
   checkDiaTodo.onchange = () => {
     inputHorario.style.display = checkDiaTodo.checked ? 'none' : '';
+    atualizarAvisoPorHorario();
   };
+  inputHorario.oninput = atualizarAvisoPorHorario;
+  inputHorario.onchange = atualizarAvisoPorHorario;
 
   painel.appendChild(linhaHorario);
 
@@ -1293,6 +1447,14 @@ function buildEventoFormArea(){
   });
   linhaRecorrencia.appendChild(selectRecorrencia);
   painel.appendChild(linhaRecorrencia);
+
+  // ---- linha: aviso por notificação ----
+  const linhaAviso = document.createElement('div');
+  linhaAviso.className = 'cal-form-row';
+  linhaAviso.appendChild(document.createTextNode('Avisar:'));
+  linhaAviso.appendChild(seletorAviso);
+  painel.appendChild(linhaAviso);
+  atualizarAvisoPorHorario();
 
   // ---- linha: cor do evento ----
   let corSelecionada = corDoEvento(eventoAtual);
@@ -1334,14 +1496,25 @@ function buildEventoFormArea(){
   const btnSalvar = document.createElement('button');
   btnSalvar.textContent = 'Salvar';
   btnSalvar.onclick = () => {
+    // campos de aviso começam "undefined" (= apagar) e o seletor preenche os que valem
+    const aviso = {
+      avisoDias: undefined, avisoHora: undefined, avisoMinutos: undefined,
+      ...seletorAviso.obterAviso()
+    };
+    const temAviso = aviso.avisoDias !== undefined || aviso.avisoMinutos !== undefined;
     const dadosEvento = {
       titulo: inputTitulo.value.trim() || 'Sem título',
       dataInicio: inputInicio.value,
       dataFim: checkVariosDias.checked ? inputFim.value : inputInicio.value,
-      horario: checkDiaTodo.checked ? null : inputHorario.value,
+      horario: checkDiaTodo.checked ? null : (inputHorario.value || null),
       recorrencia: selectRecorrencia.value,
       cor: corSelecionada,
-      notas: inputNotas.value.trim()
+      notas: inputNotas.value.trim(),
+      ...aviso,
+      // último dia em que ainda pode haver aviso: eventos que se repetem avisam
+      // sempre; os de data única, até o dia do evento (o aviso é pelo 1º dia)
+      avisoAte: !temAviso ? undefined
+        : (selectRecorrencia.value !== 'nenhuma' ? EVENTO_AVISO_ATE_SEMPRE : inputInicio.value)
     };
     if(!dadosEvento.dataInicio) return; // sem data não tem como salvar
     if(editando){
@@ -2039,6 +2212,8 @@ async function apagarEventoDoc(eventoId){
 
 function adicionarEvento(dadosEvento){
   const evento = { id: 'e' + Date.now() + Math.random().toString(36).slice(2,6), ...dadosEvento };
+  // o Firestore recusa campos "undefined" (os de aviso desligado chegam assim do formulário)
+  Object.keys(evento).forEach(k => { if(evento[k] === undefined) delete evento[k]; });
   eventos.push(evento);
   eventoFormAbertoParaDia = null;
   renderCalendario();
@@ -2048,7 +2223,14 @@ function adicionarEvento(dadosEvento){
 function atualizarEvento(eventoId, dadosEvento){
   const evento = eventos.find(e => e.id === eventoId);
   if(!evento) return;
+  const assinaturaAntes = assinaturaAvisoEvento(evento);
   Object.assign(evento, dadosEvento);
+  // aviso desligado ou trocado: tira os campos que ficaram "undefined" (o Firestore recusa)
+  Object.keys(evento).forEach(k => { if(evento[k] === undefined) delete evento[k]; });
+  // mudou a data, a repetição, o horário ou o aviso? O aviso que já tinha saído deixa de
+  // valer (a marca "ultimaNotificacao" é gravada pelo Worker); mexer só em título,
+  // cor ou anotações não faz o aviso repetir.
+  if(assinaturaAvisoEvento(evento) !== assinaturaAntes) delete evento.ultimaNotificacao;
   eventoEditandoId = null;
   renderCalendario();
   salvarEvento(evento);

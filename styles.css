@@ -1062,6 +1062,7 @@
   .cal-form-row input[type="text"],
   .cal-form-row input[type="date"],
   .cal-form-row input[type="time"],
+  .cal-form-row input[type="number"],
   .cal-form-row select{
     font-family: Georgia, serif;
     font-size: 14px;
@@ -1071,6 +1072,20 @@
     border-radius: 3px;
   }
   .cal-form-row input[type="text"]{ flex: 1 1 200px; }
+  /* Campo "Avisar:" do evento: lista + (dias e horário) ou (tempo e unidade) */
+  .aviso-evento{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .aviso-evento-grupo{
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .cal-form-row input[type="number"]{ width: 72px; }
   .cal-form-actions{
     display: flex;
     gap: 8px;
