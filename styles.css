@@ -745,6 +745,60 @@
     border-bottom: 2px solid var(--ink);
   }
 
+  /* Cabeçalho da Grade: nome do dia + data à esquerda, botão dos eventos à direita */
+  .grade-header{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .grade-eventos-btn{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: 0;
+    padding: 5px 10px;
+    border: 1px solid var(--rule);
+    background: #fff;
+    color: var(--ink-soft);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .grade-eventos-btn.ligado{
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--paper);
+  }
+
+  /* Seletor de dias da Grade: 7 botões que dividem a largura, cada um com letra + data */
+  .grade-dias{
+    margin-bottom: 14px;
+  }
+  .grade-dias .day-btn{
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 64px;
+    width: auto;
+    height: 44px;
+    padding: 2px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.15;
+  }
+  .day-btn-letra{ font-size: 13px; font-weight: bold; }
+  .day-btn-data{ font-size: 9px; opacity: 0.8; }
+  .grade-dias .day-btn.hoje{
+    box-shadow: inset 0 -3px 0 var(--ink); /* marca o dia de hoje */
+  }
+
+  /* Evento do Calendário na Grade (só para ver): cor do evento no risco e no fundo */
+  .compromisso-evento .compromisso-tag{
+    font-style: italic;
+  }
+
   .bloco-wrap{
     margin-bottom: 8px;
   }

@@ -1,4 +1,4 @@
-<!-- Rotina — versão 9.5-dev (Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.6-dev (Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -120,16 +120,12 @@
   </div>
 
   <div id="gradeScreen" class="hidden">
-    <div class="day-picker" id="diaSeletor">
-      <button class="day-btn" data-day="0">D</button>
-      <button class="day-btn" data-day="1">S</button>
-      <button class="day-btn" data-day="2">T</button>
-      <button class="day-btn" data-day="3">Q</button>
-      <button class="day-btn" data-day="4">Q</button>
-      <button class="day-btn" data-day="5">S</button>
-      <button class="day-btn" data-day="6">S</button>
+    <!-- 7 dias que andam com o hoje (3 antes, hoje, 3 depois): os botões são montados por renderDiaSeletor() -->
+    <div class="day-picker grade-dias" id="diaSeletor"></div>
+    <div class="grade-header" id="gradeHeader">
+      <span id="gradeHeaderTexto"></span>
+      <button type="button" class="grade-eventos-btn" id="btnEventosGrade"></button>
     </div>
-    <div class="grade-header" id="gradeHeader"></div>
     <div id="gradeSlots"></div>
   </div>
 
@@ -189,7 +185,17 @@ let currentMode = 'ambos';
 // chama estas pequenas funções, que fazem a troca por ele.
 function setTasks(lista){ tasks = lista; }
 function setBlocos(lista){ blocos = lista; }
-function setEventos(lista){ eventos = lista; }
+function setEventos(lista){
+  eventos = lista;
+  // O Worker grava "ultimaNotificacao" nos eventos a cada aviso: isso não muda nada do que a
+  // Grade mostra, então só redesenha se título, data, horário, repetição ou cor mudaram
+  // (assim um formulário de bloco aberto não é apagado à toa).
+  const nova = lista.map(e => [e.id, e.titulo, e.dataInicio, e.dataFim, e.horario, e.recorrencia, e.cor].join('|')).sort().join('\n');
+  if(nova !== assinaturaEventosGrade){
+    assinaturaEventosGrade = nova;
+    if(telaAtual === 'grade') renderGrade();
+  }
+}
 function setCurrentMode(modo){ currentMode = modo; }
 
 function renderModeBar(){
@@ -460,6 +466,11 @@ let viewMode = 'freq'; // 'freq' (padrão, por Diária/Semanal/...) ou 'pasta'
 let showBlocked = false; // tarefas travadas por meta ficam escondidas por padrão
 let blocos = []; // blocos da Grade Horária, um por dia da semana
 let diaGradeSelecionado = new Date().getDay(); // qual dia da semana está sendo visualizado na Grade
+// Eventos do Calendário na Grade (só para ver): ligado por padrão; a escolha fica só neste aparelho
+let mostrarEventosNaGrade = true;
+try{ mostrarEventosNaGrade = localStorage.getItem('rotina.grade.mostrarEventos') !== '0'; }catch(e){ /* sem localStorage: fica ligado */ }
+let dataDaGradeRenderizada = null; // 'AAAA-MM-DD' de "hoje" quando a Grade foi desenhada (para a janela andar à meia-noite)
+let assinaturaEventosGrade = '';   // resumo dos eventos que a Grade mostra (só redesenha se algo visível mudou)
 let blocoEditandoId = null; // qual bloco está com o formulário de edição aberto
 let eventos = []; // eventos do Calendário (usuarios/{uid}/eventos), carregados do Firestore
 let mesCalendarioAtual = new Date(); // qual mês está sendo exibido na tela Calendário
@@ -565,34 +576,155 @@ function desfazerPasta(nomePasta){
 // ser só um rótulo informativo (ex: "Transporte", "Descanso") sem vínculo
 // nenhum com o checklist.
 
+// ---------- Janela de 7 dias da Grade ----------
+// A Grade mostra 7 dias que andam com o calendário: 3 antes de hoje, hoje no meio e 3
+// depois. Cada dia da semana aparece exatamente UMA vez nessa janela, então "quarta"
+// sempre aponta para uma data só. Os blocos (que são por dia da semana) funcionam do
+// mesmo jeito de sempre; a data serve para mostrar os eventos do Calendário.
+const GRADE_DIAS_VIZINHOS = 3;
+const GRADE_LETRAS_DIA = ['D','S','T','Q','Q','S','S'];
+
+// A data que o dia da semana (0-6) representa na janela de hoje.
+function dataDoDiaDaGrade(diaSemana, base){
+  const b = base || new Date();
+  const hoje = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  const deslocamento = ((diaSemana - hoje.getDay() + GRADE_DIAS_VIZINHOS + 7) % 7) - GRADE_DIAS_VIZINHOS;
+  return new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + deslocamento);
+}
+
 function renderDiaSeletor(){
-  document.querySelectorAll('#diaSeletor .day-btn').forEach(b => {
-    b.classList.toggle('active', Number(b.dataset.day) === diaGradeSelecionado);
-  });
+  const seletor = document.getElementById('diaSeletor');
+  seletor.innerHTML = '';
+  const hoje = new Date();
+  for(let desl = -GRADE_DIAS_VIZINHOS; desl <= GRADE_DIAS_VIZINHOS; desl++){
+    const data = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + desl);
+    const dia = data.getDay();
+    const dataTxt = pad(data.getDate()) + '/' + pad(data.getMonth() + 1);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'day-btn' + (dia === diaGradeSelecionado ? ' active' : '') + (desl === 0 ? ' hoje' : '');
+    b.dataset.day = String(dia);
+    b.title = WEEKDAYS[dia] + ', ' + dataTxt + (desl === 0 ? ' (hoje)' : '');
+    const letra = document.createElement('span');
+    letra.className = 'day-btn-letra';
+    letra.textContent = GRADE_LETRAS_DIA[dia];
+    const dt = document.createElement('span');
+    dt.className = 'day-btn-data';
+    dt.textContent = dataTxt;
+    b.appendChild(letra);
+    b.appendChild(dt);
+    seletor.appendChild(b);
+  }
+}
+
+// "· dia 2/3" para eventos de vários dias (os que se repetem não têm isso)
+function textoDiaDoEvento(ev, data){
+  if(ev.recorrencia === 'anual' || ev.recorrencia === 'mensal') return '';
+  const fimISO = ev.dataFim || ev.dataInicio;
+  if(!ev.dataInicio || fimISO === ev.dataInicio) return '';
+  const ini = new Date(ev.dataInicio + 'T00:00:00');
+  const fim = new Date(fimISO + 'T00:00:00');
+  const total = Math.round((fim - ini) / 86400000) + 1;
+  const n = Math.round((data - ini) / 86400000) + 1;
+  return ' · dia ' + n + '/' + total;
+}
+
+// Abre o evento no Calendário, já em modo de edição, no mês da data que foi tocada
+function abrirEventoNoCalendario(ev, data){
+  mesCalendarioAtual = new Date(data.getFullYear(), data.getMonth(), 1);
+  eventoFormAbertoParaDia = null;
+  eventoEditandoId = ev.id;
+  document.querySelector('.tela-btn[data-tela="calendario"]').click(); // troca de tela como as abas fazem
+  const area = document.getElementById('calendarioFormArea');
+  if(area && area.scrollIntoView) area.scrollIntoView({ block: 'nearest' });
+}
+
+// Linha de um evento do Calendário na Grade: só para ver (a edição fica no Calendário)
+function buildEventoRowGrade(ev, data){
+  const cor = corDoEvento(ev);
+  const wrap = document.createElement('div');
+  wrap.className = 'bloco-wrap';
+
+  const row = document.createElement('div');
+  row.className = 'compromisso compromisso-evento';
+  row.style.borderLeftColor = cor;
+  row.style.background = hexParaRgba(cor, 0.10);
+  row.style.cursor = 'pointer';
+  row.title = 'Abrir no Calendário';
+  row.onclick = () => abrirEventoNoCalendario(ev, data);
+
+  const horaEl = document.createElement('span');
+  horaEl.className = 'bloco-hora';
+  horaEl.textContent = ev.horario ? ev.horario : 'dia todo';
+  row.appendChild(horaEl);
+
+  const texto = document.createElement('span');
+  texto.className = 'compromisso-texto';
+  texto.textContent = ev.titulo;
+  row.appendChild(texto);
+
+  const tag = document.createElement('span');
+  tag.className = 'compromisso-tag';
+  tag.textContent = 'evento' + textoDiaDoEvento(ev, data);
+  row.appendChild(tag);
+
+  wrap.appendChild(row);
+  return wrap;
 }
 
 function renderGrade(){
   renderDiaSeletor();
 
-  const nomeDia = WEEKDAYS[diaGradeSelecionado];
-  document.getElementById('gradeHeader').textContent = nomeDia.charAt(0).toUpperCase() + nomeDia.slice(1);
+  const hoje = new Date();
+  const hojeMeiaNoite = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  dataDaGradeRenderizada = dailyKey(hojeMeiaNoite);
+  const dataSel = dataDoDiaDaGrade(diaGradeSelecionado, hoje);
+  const desl = Math.round((dataSel - hojeMeiaNoite) / 86400000);
 
-  const blocosDoDia = blocos
-    .filter(b => b.dia === diaGradeSelecionado)
-    .slice()
-    .sort((a, b) => a.inicio.localeCompare(b.inicio) || a.fim.localeCompare(b.fim));
+  const nomeDia = WEEKDAYS[diaGradeSelecionado];
+  const relativo = desl === 0 ? ' · hoje' : desl === -1 ? ' · ontem' : desl === 1 ? ' · amanhã' : '';
+  document.getElementById('gradeHeaderTexto').textContent =
+    nomeDia.charAt(0).toUpperCase() + nomeDia.slice(1) + ' · ' + pad(dataSel.getDate()) + '/' + pad(dataSel.getMonth() + 1) + relativo;
+
+  const btnEventos = document.getElementById('btnEventosGrade');
+  btnEventos.textContent = mostrarEventosNaGrade ? 'Eventos: mostrando' : 'Eventos: escondidos';
+  btnEventos.classList.toggle('ligado', mostrarEventosNaGrade);
+  btnEventos.setAttribute('aria-pressed', String(mostrarEventosNaGrade));
+  btnEventos.title = 'Mostrar ou esconder os eventos do Calendário nesta tela (vale só neste aparelho)';
+
+  const blocosDoDia = blocos.filter(b => b.dia === diaGradeSelecionado);
+
+  // eventos do Calendário que caem nesta data (inclui vários dias e os que se repetem)
+  const eventosDoDia = mostrarEventosNaGrade
+    ? eventosNoDia(dataSel.getFullYear(), dataSel.getMonth(), dataSel.getDate())
+    : [];
+  const eventosDiaTodo = eventosDoDia
+    .filter(ev => !ev.horario)
+    .sort((a, b) => (a.titulo || '').localeCompare(b.titulo || ''));
+
+  // blocos e eventos com horário ficam juntos, na ordem do horário (no empate, o bloco vem antes)
+  const itens = [
+    ...blocosDoDia.map(b => ({ tipo: 'bloco', hora: b.inicio, fim: b.fim || '', bloco: b })),
+    ...eventosDoDia.filter(ev => ev.horario).map(ev => ({ tipo: 'evento', hora: ev.horario, fim: '', ev }))
+  ].sort((a, b) =>
+    a.hora.localeCompare(b.hora) ||
+    (a.tipo === b.tipo ? 0 : (a.tipo === 'bloco' ? -1 : 1)) ||
+    a.fim.localeCompare(b.fim));
 
   const container = document.getElementById('gradeSlots');
   container.innerHTML = '';
 
-  if(blocosDoDia.length === 0){
+  if(itens.length === 0 && eventosDiaTodo.length === 0){
     const msg = document.createElement('div');
     msg.className = 'sem-horario-msg';
     msg.textContent = 'Nenhum bloco cadastrado pra esse dia ainda. Use o formulário abaixo pra adicionar.';
     container.appendChild(msg);
   } else {
-    blocosDoDia.forEach(bloco => {
-      container.appendChild(buildBlocoRow(bloco));
+    eventosDiaTodo.forEach(ev => container.appendChild(buildEventoRowGrade(ev, dataSel)));
+    itens.forEach(item => {
+      container.appendChild(item.tipo === 'bloco'
+        ? buildBlocoRow(item.bloco)
+        : buildEventoRowGrade(item.ev, dataSel));
     });
   }
 
@@ -1189,8 +1321,6 @@ function renderCalendario(){
   buildEventoFormArea();
 }
 
-// Monta o formulário de criar (eventoFormAbertoParaDia) ou editar
-// (eventoEditandoId) um evento. Só um dos dois fica ativo por vez.
 // ---------- Aviso dos eventos do Calendário ----------
 // Cada evento pode te avisar por notificação, de dois jeitos (campos salvos no evento):
 //   • N DIAS ANTES, num horário do dia: avisoDias (0 = no próprio dia) + avisoHora ("09:00")
@@ -1336,6 +1466,8 @@ function criarSeletorDeAvisoEvento(eventoAtual){
   return wrap;
 }
 
+// Monta o formulário de criar (eventoFormAbertoParaDia) ou editar
+// (eventoEditandoId) um evento. Só um dos dois fica ativo por vez.
 function buildEventoFormArea(){
   const area = document.getElementById('calendarioFormArea');
   area.innerHTML = '';
@@ -2633,6 +2765,12 @@ document.getElementById('calNextMes').onclick = () => {
   renderCalendario();
 };
 
+document.getElementById('btnEventosGrade').onclick = () => {
+  mostrarEventosNaGrade = !mostrarEventosNaGrade;
+  try{ localStorage.setItem('rotina.grade.mostrarEventos', mostrarEventosNaGrade ? '1' : '0'); }catch(e){ /* só não lembra da escolha */ }
+  renderGrade();
+};
+
 document.getElementById('diaSeletor').addEventListener('click', e => {
   const btn = e.target.closest('.day-btn');
   if(!btn) return;
@@ -2643,6 +2781,9 @@ document.getElementById('diaSeletor').addEventListener('click', e => {
 
 setInterval(() => {
   renderTodayLabel();
+  // virou o dia com a Grade aberta: a janela de 7 dias anda (só redesenha se o dia mudou,
+  // para não apagar o que você está digitando num formulário)
+  if(telaAtual === 'grade' && dataDaGradeRenderizada && dataDaGradeRenderizada !== dailyKey(new Date())) renderGrade();
   // sem confirmação do servidor ainda (ou offline): só redesenha, sem manutenção
   if(!manutencaoLiberada()){ render(); return; }
   const tarefasComAtraso = checkMissedTasks();
