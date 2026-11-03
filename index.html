@@ -1,4 +1,4 @@
-<!-- Rotina — versão 9.6-dev (Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.8-dev (Lista: dá para bloquear uma tarefa sem meta, só para parar de mostrá-la — botão "bloquear" ao editar; ela some da lista junto com as bloqueadas por meta, e volta com "Mostrar" ou "desbloquear"; 9.7: Lista: o aparelho lembra "Ver por", "Bloqueadas por meta" e a categoria escolhida, em vez de voltar ao padrão toda vez que o Rotina abre; 9.6: Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -71,7 +71,7 @@
   </div>
 
   <div class="mode-bar" id="metaBar">
-    <span class="mode-label">Bloqueadas por meta:</span>
+    <span class="mode-label">Bloqueadas:</span>
     <button class="mode-btn" data-showblocked="false">Escondidas</button>
     <button class="mode-btn" data-showblocked="true">Mostrar</button>
   </div>
@@ -178,7 +178,24 @@ let subtasksOpenId = null; // controla só a visibilidade dos mini-passos ao cli
 let focarCampoDeNomeAoAbrir = false; // liga só no instante em que "editar" é clicado
 let editingSubtaskId = null; // qual mini-passo está com o texto em edição no momento
 let focarSubtaskAoEditar = false; // liga só no instante em que se clica pra editar um passo
-let selectedCategory = 'all';
+// ---------- Opções da Lista que ESTE aparelho lembra ----------
+// "Ver por", "Bloqueadas por meta" e a categoria escolhida ficam guardadas no navegador
+// deste aparelho (localStorage), então ao abrir o Rotina de novo tudo continua como você
+// deixou. Não vão para o Firestore: cada aparelho lembra a sua própria escolha. Se o
+// navegador bloquear o armazenamento, o app funciona igual, só não lembra.
+const PREFS_LISTA = {
+  view: 'rotina.lista.viewMode',
+  bloqueadas: 'rotina.lista.showBlocked',
+  categoria: 'rotina.lista.categoria'
+};
+const VIEW_MODES_VALIDOS = ['freq', 'pasta', 'data-antigas', 'data-recentes'];
+function lerPreferencia(chave){
+  try{ return localStorage.getItem(chave); }catch(e){ return null; }
+}
+function guardarPreferencia(chave, valor){
+  try{ localStorage.setItem(chave, valor); }catch(e){ /* sem localStorage: só não lembra */ }
+}
+let selectedCategory = lerPreferencia(PREFS_LISTA.categoria) || 'all';
 let currentMode = 'ambos';
 
 // O sync.js não pode mudar essas variáveis direto (são daqui), então ele
@@ -204,7 +221,8 @@ function renderModeBar(){
   });
   // O Regime (meio período/integral) só existe em tarefas de "Trabalho",
   // então esse filtro só faz sentido aparecer vendo "Trabalho" ou "Todas".
-  const relevante = selectedCategory === 'all' || selectedCategory.toLowerCase() === 'trabalho';
+  const categoriaAtual = categoriaEfetiva();
+  const relevante = categoriaAtual === 'all' || categoriaAtual.toLowerCase() === 'trabalho';
   document.getElementById('modeBar').classList.toggle('hidden', !relevante);
 }
 
@@ -225,22 +243,31 @@ function distinctCategories(){
   return Array.from(set).sort((a,b) => a.localeCompare(b, 'pt-BR'));
 }
 
+// A categoria que vale de verdade agora. Se a salva não existe (as tarefas ainda estão
+// carregando, ou a última tarefa dela foi apagada), mostra "Todas" — SEM apagar a escolha
+// salva, que volta a valer quando a categoria aparecer de novo.
+function categoriaEfetiva(){
+  return (selectedCategory === 'all' || distinctCategories().includes(selectedCategory))
+    ? selectedCategory : 'all';
+}
+
 function renderCatBar(){
   const bar = document.getElementById('catBar');
   const cats = distinctCategories();
+  const categoriaAtual = categoriaEfetiva();
   bar.innerHTML = '';
 
   const allChip = document.createElement('button');
-  allChip.className = 'cat-chip' + (selectedCategory === 'all' ? ' active' : '');
+  allChip.className = 'cat-chip' + (categoriaAtual === 'all' ? ' active' : '');
   allChip.textContent = 'Todas';
-  allChip.onclick = () => { selectedCategory = 'all'; render(); };
+  allChip.onclick = () => { selectedCategory = 'all'; guardarPreferencia(PREFS_LISTA.categoria, 'all'); render(); };
   bar.appendChild(allChip);
 
   cats.forEach(cat => {
     const chip = document.createElement('button');
-    chip.className = 'cat-chip' + (selectedCategory === cat ? ' active' : '');
+    chip.className = 'cat-chip' + (categoriaAtual === cat ? ' active' : '');
     chip.textContent = cat;
-    chip.onclick = () => { selectedCategory = cat; render(); };
+    chip.onclick = () => { selectedCategory = cat; guardarPreferencia(PREFS_LISTA.categoria, cat); render(); };
     bar.appendChild(chip);
   });
 
@@ -373,6 +400,23 @@ function metaAtingida(task){
   return !task.meta || task.meta.atual >= task.meta.alvo;
 }
 
+// Bloqueio manual: o usuário esconde uma tarefa que só vai poder fazer mais tarde,
+// sem precisar de meta. Fica guardado na própria tarefa (task.bloqueada).
+function bloqueadaManual(task){
+  return task.bloqueada === true;
+}
+// Travada por qualquer motivo: bloqueio manual OU meta ainda não batida.
+function tarefaTravada(task){
+  return bloqueadaManual(task) || !metaAtingida(task);
+}
+function alternarBloqueio(taskId){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  task.bloqueada = !bloqueadaManual(task);
+  render();
+  salvarTarefa(task);
+}
+
 function atualizarMeta(taskId, novoValor){
   const task = tasks.find(t => t.id === taskId);
   if(!task || !task.meta) return;
@@ -462,8 +506,8 @@ const GROUPS = [
   {freq:'once', label:'Únicas'}
 ];
 
-let viewMode = 'freq'; // 'freq' (padrão, por Diária/Semanal/...) ou 'pasta'
-let showBlocked = false; // tarefas travadas por meta ficam escondidas por padrão
+let viewMode = VIEW_MODES_VALIDOS.includes(lerPreferencia(PREFS_LISTA.view)) ? lerPreferencia(PREFS_LISTA.view) : 'freq'; // 'freq' (padrão, por Diária/Semanal/...), 'pasta' ou por data
+let showBlocked = lerPreferencia(PREFS_LISTA.bloqueadas) === '1'; // tarefas travadas por meta ficam escondidas por padrão
 let blocos = []; // blocos da Grade Horária, um por dia da semana
 let diaGradeSelecionado = new Date().getDay(); // qual dia da semana está sendo visualizado na Grade
 // Eventos do Calendário na Grade (só para ver): ligado por padrão; a escolha fica só neste aparelho
@@ -479,10 +523,11 @@ let eventoEditandoId = null; // id do evento com o formulário de edição abert
 
 function getVisibleTasks(){
   const hoje = new Date().getDay();
+  const categoriaAtual = categoriaEfetiva();
   return tasks
-    .filter(t => selectedCategory === 'all' || (t.category || 'Geral') === selectedCategory)
+    .filter(t => categoriaAtual === 'all' || (t.category || 'Geral') === categoriaAtual)
     .filter(t => currentMode === 'ambos' || !t.regime || t.regime === currentMode)
-    .filter(t => showBlocked || metaAtingida(t))
+    .filter(t => showBlocked || !tarefaTravada(t))
     .filter(t => diaEhAtivoParaTarefa(t, hoje));
 }
 
@@ -745,7 +790,7 @@ function buildBlocoRow(bloco){
 
   if(tarefaVinculada){
     const temPassos = tarefaVinculada.subtasks && tarefaVinculada.subtasks.length > 0;
-    const bloqueada = tarefaVinculada.meta && !metaAtingida(tarefaVinculada);
+    const bloqueada = tarefaVinculada && tarefaTravada(tarefaVinculada);
     if(!temPassos && !bloqueada){
       row.onclick = () => toggleTask(tarefaVinculada.id);
       row.style.cursor = 'pointer';
@@ -1746,7 +1791,7 @@ function render(){
         if(expandedTaskId === task.id) classes.push('expanded');
         if(task.missed && !done) classes.push('missed');
         if(task.pinned) classes.push('pinned-row');
-        const bloqueadaPorMeta = task.meta && !metaAtingida(task);
+        const bloqueadaPorMeta = tarefaTravada(task);
         if(bloqueadaPorMeta) classes.push('meta-bloqueada');
         li.className = classes.join(' ');
 
@@ -1778,7 +1823,9 @@ function render(){
           // travada: mostra o progresso da meta no lugar do check, sem
           // dar pra marcar enquanto não bater o valor alvo
           check.className = 'check meta-locked';
-          check.textContent = '🔒 ' + task.meta.atual.toLocaleString('pt-BR') + '/' + task.meta.alvo.toLocaleString('pt-BR');
+          check.textContent = (task.meta && !metaAtingida(task))
+            ? '🔒 ' + task.meta.atual.toLocaleString('pt-BR') + '/' + task.meta.alvo.toLocaleString('pt-BR')
+            : '🔒 bloqueada';
           if(comDescricao){
             li.onclick = abrirOuFecharClique;
             li.style.cursor = 'pointer';
@@ -1841,7 +1888,7 @@ function render(){
           tagsWrap.appendChild(descTag);
         }
 
-        if(selectedCategory === 'all'){
+        if(categoriaEfetiva() === 'all'){
           const catTag = document.createElement('span');
           catTag.className = 'task-cat';
           catTag.textContent = task.category || 'Geral';
@@ -1910,6 +1957,7 @@ function render(){
           ul.appendChild(buildPastaPanel(task));
           if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
           ul.appendChild(task.meta ? buildMetaPanel(task) : buildAddMetaPanel(task));
+          ul.appendChild(buildBloqueioPanel(task));
           ul.appendChild(buildDescricaoPanel(task));
         }
         // a descrição aberta pelo clique aparece acima dos mini-passos (no "editar"
@@ -1944,6 +1992,24 @@ function render(){
   }
 
   if(telaAtual === 'grade') renderGrade();
+}
+
+// Painel do bloqueio manual: um botão para esconder/mostrar a tarefa, sem meta.
+function buildBloqueioPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+  const label = document.createElement('span');
+  label.textContent = bloqueadaManual(task) ? 'bloqueada: some da lista até você desbloquear' : 'bloquear: esconde da lista, sem meta';
+  row.appendChild(label);
+  const btn = document.createElement('button');
+  btn.textContent = bloqueadaManual(task) ? 'desbloquear' : 'bloquear';
+  btn.onclick = () => alternarBloqueio(task.id);
+  row.appendChild(btn);
+  panel.appendChild(row);
+  return panel;
 }
 
 // Painel de progresso da meta (aparece quando a tarefa tem meta e está
@@ -2733,14 +2799,16 @@ document.getElementById('viewBar').addEventListener('click', e => {
   const btn = e.target.closest('.mode-btn');
   if(!btn) return;
   viewMode = btn.dataset.view;
-  render(); // isso é só visual — não precisa salvar no Firestore
+  guardarPreferencia(PREFS_LISTA.view, viewMode); // lembra neste aparelho (não vai para o Firestore)
+  render();
 });
 
 document.getElementById('metaBar').addEventListener('click', e => {
   const btn = e.target.closest('.mode-btn');
   if(!btn) return;
   showBlocked = btn.dataset.showblocked === 'true';
-  render(); // isso também é só visual, local a este dispositivo
+  guardarPreferencia(PREFS_LISTA.bloqueadas, showBlocked ? '1' : '0'); // lembra neste aparelho
+  render();
 });
 
 document.getElementById('telaToggle').addEventListener('click', e => {
