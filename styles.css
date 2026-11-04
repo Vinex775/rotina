@@ -523,6 +523,27 @@
     font-weight: bold;
     text-transform: capitalize;
   }
+  .cal-config{ margin: 0 0 8px; }
+  .cal-config button{
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    background: none;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 4px 9px;
+    cursor: pointer;
+    color: var(--ink-soft);
+  }
+  .cal-config button:hover{ color: var(--margin); border-color: var(--margin); }
+  .cal-config-painel{
+    margin-top: 6px;
+    padding: 8px 10px;
+    border: 1px dashed var(--rule);
+    border-radius: 3px;
+    font-size: 13px;
+  }
+  .cal-config-painel label{ cursor: pointer; }
+  .cal-evento.feriado{ font-weight: normal; }
   .cal-weekdays{
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
