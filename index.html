@@ -1,4 +1,4 @@
-<!-- Rotina — versão 9.9-dev (Calendário: feriados nacionais do Brasil, ligados em ⚙ Configurações (desligado por padrão, lembrado só neste aparelho); 9.8: Lista: dá para bloquear uma tarefa sem meta, só para parar de mostrá-la — botão "bloquear" ao editar; ela some da lista junto com as bloqueadas por meta, e volta com "Mostrar" ou "desbloquear"; 9.7: Lista: o aparelho lembra "Ver por", "Bloqueadas por meta" e a categoria escolhida, em vez de voltar ao padrão toda vez que o Rotina abre; 9.6: Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.11-dev (Calendário: previsão do tempo — uma nuvenzinha no canto de cada dia (hoje até ~15 dias à frente), ligada em ⚙ Configurações e valendo em todos os aparelhos; usa a localização do aparelho e o serviço gratuito Open-Meteo; 9.10: Calendário: a opção de mostrar feriados agora é da conta e vale em todos os aparelhos (fica no documento do usuário, como o modo); o aparelho que já tinha ligado sobe a escolha na primeira vez; 9.9: Calendário: feriados nacionais do Brasil, ligados em ⚙ Configurações (desligado por padrão, lembrado só neste aparelho); 9.8: Lista: dá para bloquear uma tarefa sem meta, só para parar de mostrá-la — botão "bloquear" ao editar; ela some da lista junto com as bloqueadas por meta, e volta com "Mostrar" ou "desbloquear"; 9.7: Lista: o aparelho lembra "Ver por", "Bloqueadas por meta" e a categoria escolhida, em vez de voltar ao padrão toda vez que o Rotina abre; 9.6: Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -139,6 +139,8 @@
       <button type="button" id="calConfigBtn" aria-expanded="false">⚙ Configurações</button>
       <div class="cal-config-painel hidden" id="calConfigPainel">
         <label><input type="checkbox" id="calFeriadosCheck"> Mostrar feriados nacionais</label>
+        <label class="cal-config-linha"><input type="checkbox" id="calPrevisaoCheck"> Mostrar previsão do tempo</label>
+        <div class="cal-config-status" id="calPrevisaoStatus"></div>
       </div>
     </div>
     <div class="cal-weekdays">
@@ -1386,6 +1388,17 @@ function renderCalendario(){
       numero.textContent = dia;
       if(nomeDoFeriado(ano, mes, dia)) numero.style.color = COR_FERIADO;
       cell.appendChild(numero);
+      const clima = previsaoDoDia(ano, mes, dia);
+      if(clima){
+        const info = iconeDoTempo(clima.codigo);
+        const tempo = document.createElement('span');
+        tempo.className = 'cal-tempo';
+        tempo.textContent = info.icone + (window.innerWidth > 480 && clima.max !== null ? ' ' + clima.max + '°' : '');
+        tempo.title = info.texto +
+          (clima.min !== null && clima.max !== null ? ' · ' + clima.min + '° a ' + clima.max + '°' : '') +
+          (clima.chuva !== null ? ' · chuva ' + clima.chuva + '%' : '');
+        cell.appendChild(tempo);
+      }
       linha.appendChild(cell);
     });
 
@@ -2904,7 +2917,7 @@ document.getElementById('telaToggle').addEventListener('click', e => {
   document.getElementById('gradeScreen').classList.toggle('hidden', telaAtual !== 'grade');
   document.getElementById('calendarioScreen').classList.toggle('hidden', telaAtual !== 'calendario');
   if(telaAtual === 'grade') renderGrade();
-  if(telaAtual === 'calendario') renderCalendario();
+  if(telaAtual === 'calendario'){ renderCalendario(); buscarPrevisao(); }
 });
 
 // ⚙ Configurações do Calendário: abre/fecha o painel; a caixinha liga os feriados
@@ -2915,9 +2928,174 @@ document.getElementById('calConfigBtn').onclick = (e) => {
   const aberto = painel.classList.toggle('hidden') === false;
   e.currentTarget.setAttribute('aria-expanded', String(aberto));
 };
+// ---------- Previsão do tempo ----------
+// Uma nuvenzinha (ícone do tempo) no canto de cada dia, de hoje até ~15 dias à frente.
+// Dados do Open-Meteo (gratuito, sem chave), pela localização DESTE aparelho (o navegador
+// pede permissão). Ligar/desligar vale para a conta toda; a localização e a previsão
+// guardada (cópia por 3 h, para abrir rápido e funcionar sem internet) são de cada aparelho.
+const CHAVE_PREVISAO = 'rotina.calendario.previsao';
+const CHAVE_LOCAL_PREVISAO = 'rotina.calendario.previsaoLocal';
+const CHAVE_CACHE_PREVISAO = 'rotina.calendario.previsaoCache';
+const PREVISAO_VALIDADE_MS = 3 * 60 * 60 * 1000;
+let mostrarPrevisao = lerPreferencia(CHAVE_PREVISAO) === '1';
+let previsaoPorDia = {};          // { 'AAAA-MM-DD': { codigo, max, min, chuva } }
+let buscandoPrevisao = false;
+const calPrevisaoStatusEl = document.getElementById('calPrevisaoStatus');
+function mostrarStatusPrevisao(texto){ calPrevisaoStatusEl.textContent = texto || ''; }
+
+// código WMO do Open-Meteo -> ícone e descrição
+function iconeDoTempo(codigo){
+  if(codigo === 0) return { icone: '☀️', texto: 'Céu limpo' };
+  if(codigo === 1) return { icone: '🌤️', texto: 'Predominantemente limpo' };
+  if(codigo === 2) return { icone: '⛅', texto: 'Parcialmente nublado' };
+  if(codigo === 3) return { icone: '☁️', texto: 'Nublado' };
+  if(codigo === 45 || codigo === 48) return { icone: '🌫️', texto: 'Neblina' };
+  if(codigo >= 51 && codigo <= 57) return { icone: '🌦️', texto: 'Garoa' };
+  if(codigo >= 61 && codigo <= 67) return { icone: '🌧️', texto: 'Chuva' };
+  if(codigo >= 71 && codigo <= 77) return { icone: '❄️', texto: 'Neve' };
+  if(codigo >= 80 && codigo <= 82) return { icone: '🌧️', texto: 'Pancadas de chuva' };
+  if(codigo === 85 || codigo === 86) return { icone: '❄️', texto: 'Pancadas de neve' };
+  if(codigo >= 95) return { icone: '⛈️', texto: 'Tempestade' };
+  return { icone: '🌡️', texto: 'Tempo' };
+}
+function previsaoDoDia(ano, mes, dia){
+  if(!mostrarPrevisao) return null;
+  return previsaoPorDia[dataISO(ano, mes, dia)] || null;
+}
+// resposta do Open-Meteo -> { 'AAAA-MM-DD': {...} } (ignora o que vier incompleto)
+function lerRespostaDaPrevisao(json){
+  const d = json && json.daily;
+  const dias = {};
+  if(!d || !Array.isArray(d.time)) return dias;
+  d.time.forEach((iso, i) => {
+    const codigo = d.weather_code && d.weather_code[i];
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(iso) || !Number.isFinite(codigo)) return;
+    dias[iso] = {
+      codigo,
+      max: Number.isFinite(d.temperature_2m_max && d.temperature_2m_max[i]) ? Math.round(d.temperature_2m_max[i]) : null,
+      min: Number.isFinite(d.temperature_2m_min && d.temperature_2m_min[i]) ? Math.round(d.temperature_2m_min[i]) : null,
+      chuva: Number.isFinite(d.precipitation_probability_max && d.precipitation_probability_max[i]) ? Math.round(d.precipitation_probability_max[i]) : null
+    };
+  });
+  return dias;
+}
+function lerJsonGuardado(chave){
+  try{ return JSON.parse(lerPreferencia(chave)); }catch(e){ return null; }
+}
+function pedirLocalizacao(){
+  return new Promise((resolve, reject) => {
+    if(!navigator.geolocation){ reject(new Error('sem-suporte')); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: Math.round(pos.coords.latitude * 100) / 100, lon: Math.round(pos.coords.longitude * 100) / 100 }),
+      err => reject(err),
+      { timeout: 10000, maximumAge: 24 * 60 * 60 * 1000 }
+    );
+  });
+}
+async function buscarPrevisao(){
+  if(!mostrarPrevisao || buscandoPrevisao) return;
+  buscandoPrevisao = true;
+  try{
+    // 1) mostra já o que está guardado (se houver), mesmo velho
+    const cache = lerJsonGuardado(CHAVE_CACHE_PREVISAO);
+    if(cache && cache.dias){
+      previsaoPorDia = cache.dias;
+      renderCalendario();
+    }
+    if(cache && Date.now() - cache.quando < PREVISAO_VALIDADE_MS){ mostrarStatusPrevisao(''); return; }
+    // 2) precisa atualizar: onde este aparelho está?
+    let local = lerJsonGuardado(CHAVE_LOCAL_PREVISAO);
+    if(!local || !Number.isFinite(local.lat) || !Number.isFinite(local.lon)){
+      mostrarStatusPrevisao('Pedindo sua localização…');
+      try{
+        local = await pedirLocalizacao();
+        guardarPreferencia(CHAVE_LOCAL_PREVISAO, JSON.stringify(local));
+      }catch(e){
+        mostrarStatusPrevisao('Sem a localização deste aparelho não dá para mostrar a previsão. Permita o acesso à localização para o Rotina no navegador e desligue/ligue a opção.');
+        return;
+      }
+    }
+    // 3) busca a previsão
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + local.lat + '&longitude=' + local.lon +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=16';
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error('http ' + resp.status);
+    const dias = lerRespostaDaPrevisao(await resp.json());
+    if(Object.keys(dias).length === 0) throw new Error('resposta vazia');
+    previsaoPorDia = dias;
+    guardarPreferencia(CHAVE_CACHE_PREVISAO, JSON.stringify({ quando: Date.now(), dias }));
+    mostrarStatusPrevisao('');
+    renderCalendario();
+  }catch(e){
+    console.error('Falha ao buscar a previsão do tempo', e);
+    mostrarStatusPrevisao(Object.keys(previsaoPorDia).length ? 'Sem internet: mostrando a última previsão guardada.' : 'Não consegui buscar a previsão agora (sem internet?).');
+  }finally{
+    buscandoPrevisao = false;
+  }
+}
+
+// A escolha vale para a conta inteira: fica no documento do usuário (campo mostrarFeriados),
+// junto do modo, e todo aparelho logado recebe a mudança sozinho. O localStorage continua
+// só como cópia rápida para o calendário já abrir certo antes do servidor responder.
+let unsubscribeFeriados = null;
+async function salvarConfigCalendario(campos){
+  if(!currentUser) return;
+  try{
+    await setDoc(usuarioDocRef(), campos, { merge: true });
+  }catch(e){
+    console.error('Falha ao salvar a configuração do calendário', e);
+  }
+}
+const salvarFeriados = valor => salvarConfigCalendario({ mostrarFeriados: valor });
+function aplicarPrevisaoRecebida(valor){
+  if(valor === mostrarPrevisao) return;
+  mostrarPrevisao = valor;
+  guardarPreferencia(CHAVE_PREVISAO, valor ? '1' : '0');
+  calPrevisaoCheckEl.checked = valor;
+  if(valor) buscarPrevisao(); else { mostrarStatusPrevisao(''); renderCalendario(); }
+}
+function aplicarFeriadosRecebidos(valor){
+  if(valor === mostrarFeriados) return;
+  mostrarFeriados = valor;
+  guardarPreferencia(CHAVE_FERIADOS, valor ? '1' : '0');
+  calFeriadosCheckEl.checked = valor;
+  renderCalendario();
+}
+function comecarAEscutarFeriados(){
+  pararDeEscutarFeriados();
+  unsubscribeFeriados = onSnapshot(usuarioDocRef(), (snap) => {
+    const data = snap.data();
+    if(data && typeof data.mostrarFeriados === 'boolean'){
+      aplicarFeriadosRecebidos(data.mostrarFeriados);
+    }else if(mostrarFeriados){
+      // a conta ainda não tem a escolha, mas este aparelho já tinha ligado: sobe para a conta
+      salvarFeriados(true);
+    }
+    if(data && typeof data.mostrarPrevisao === 'boolean'){
+      aplicarPrevisaoRecebida(data.mostrarPrevisao);
+    }else if(mostrarPrevisao){
+      salvarConfigCalendario({ mostrarPrevisao: true });
+    }
+  }, (err) => {
+    console.error('Erro ao escutar a opção de feriados', err);
+  });
+}
+function pararDeEscutarFeriados(){
+  if(unsubscribeFeriados){ unsubscribeFeriados(); unsubscribeFeriados = null; }
+}
+const calPrevisaoCheckEl = document.getElementById('calPrevisaoCheck');
+calPrevisaoCheckEl.checked = mostrarPrevisao;
+calPrevisaoCheckEl.addEventListener('change', () => {
+  mostrarPrevisao = calPrevisaoCheckEl.checked;
+  guardarPreferencia(CHAVE_PREVISAO, mostrarPrevisao ? '1' : '0');
+  salvarConfigCalendario({ mostrarPrevisao });   // vale em todos os aparelhos
+  if(mostrarPrevisao) buscarPrevisao(); else mostrarStatusPrevisao('');
+  renderCalendario();
+});
 calFeriadosCheckEl.addEventListener('change', () => {
   mostrarFeriados = calFeriadosCheckEl.checked;
-  guardarPreferencia(CHAVE_FERIADOS, mostrarFeriados ? '1' : '0'); // só neste aparelho
+  guardarPreferencia(CHAVE_FERIADOS, mostrarFeriados ? '1' : '0');
+  salvarFeriados(mostrarFeriados); // vale em todos os aparelhos
   renderCalendario();
 });
 
@@ -3061,10 +3239,13 @@ onAuthStateChanged(auth, async (user) => {
       checkMissedTasks, cleanupOnceTasks, resetExpiredPipelines,
       salvarVariasTarefas
     });
+    comecarAEscutarFeriados();
+    buscarPrevisao();
   } else {
     appScreen.classList.add('hidden');
     loginScreen.classList.remove('hidden');
     pararDeEscutar();
+    pararDeEscutarFeriados();
     tasks = [];
   }
 });

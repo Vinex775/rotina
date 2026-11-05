@@ -573,6 +573,21 @@
     padding: 3px 4px;
     font-size: 11px;
   }
+  .cal-cell{ position: relative; }
+  .cal-tempo{
+    position: absolute;
+    top: 2px;
+    right: 3px;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--ink-soft);
+    white-space: nowrap;
+    pointer-events: none;   /* clicar no dia continua criando evento */
+  }
+  .cal-config-painel label{ display: block; }
+  .cal-config-painel .cal-config-linha{ margin-top: 6px; }
+  .cal-config-status{ margin-top: 6px; font-size: 11px; color: var(--ink-soft); }
+  .cal-config-status:empty{ display: none; }
   .cal-cell.empty{ border: none; }
   .cal-cell.hoje{ border-color: var(--margin); border-width: 2px; }
   .cal-day-num{ font-weight: bold; margin-bottom: 2px; }
