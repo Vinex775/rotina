@@ -1,4 +1,4 @@
-<!-- Rotina — versão 9.11-dev (Calendário: previsão do tempo — uma nuvenzinha no canto de cada dia (hoje até ~15 dias à frente), ligada em ⚙ Configurações e valendo em todos os aparelhos; usa a localização do aparelho e o serviço gratuito Open-Meteo; 9.10: Calendário: a opção de mostrar feriados agora é da conta e vale em todos os aparelhos (fica no documento do usuário, como o modo); o aparelho que já tinha ligado sobe a escolha na primeira vez; 9.9: Calendário: feriados nacionais do Brasil, ligados em ⚙ Configurações (desligado por padrão, lembrado só neste aparelho); 9.8: Lista: dá para bloquear uma tarefa sem meta, só para parar de mostrá-la — botão "bloquear" ao editar; ela some da lista junto com as bloqueadas por meta, e volta com "Mostrar" ou "desbloquear"; 9.7: Lista: o aparelho lembra "Ver por", "Bloqueadas por meta" e a categoria escolhida, em vez de voltar ao padrão toda vez que o Rotina abre; 9.6: Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.12-dev (Projetos: nova aba "Projetos" — cada projeto tem descrição, links (PDFs no Drive etc.) e as próprias tarefas, que somem da Lista principal (a Lista tem "Tarefas de projetos: Mostrar" para vê-las juntas); mover uma tarefa para um projeto ao editar; 9.11: Calendário: previsão do tempo — uma nuvenzinha no canto de cada dia (hoje até ~15 dias à frente), ligada em ⚙ Configurações e valendo em todos os aparelhos; usa a localização do aparelho e o serviço gratuito Open-Meteo; 9.10: Calendário: a opção de mostrar feriados agora é da conta e vale em todos os aparelhos (fica no documento do usuário, como o modo); o aparelho que já tinha ligado sobe a escolha na primeira vez; 9.9: Calendário: feriados nacionais do Brasil, ligados em ⚙ Configurações (desligado por padrão, lembrado só neste aparelho); 9.8: Lista: dá para bloquear uma tarefa sem meta, só para parar de mostrá-la — botão "bloquear" ao editar; ela some da lista junto com as bloqueadas por meta, e volta com "Mostrar" ou "desbloquear"; 9.7: Lista: o aparelho lembra "Ver por", "Bloqueadas por meta" e a categoria escolhida, em vez de voltar ao padrão toda vez que o Rotina abre; 9.6: Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -50,11 +50,14 @@
 
   <div class="tela-toggle" id="telaToggle">
     <button class="tela-btn active" data-tela="lista">Lista de tarefas</button>
+    <button class="tela-btn" data-tela="projetos">Projetos</button>
     <button class="tela-btn" data-tela="grade">Grade Horária</button>
     <button class="tela-btn" data-tela="calendario">Calendário</button>
   </div>
 
   <div id="listaScreen">
+  <!-- cabeçalho do projeto aberto (descrição e links): montado por renderProjetoCabecalho() -->
+  <div class="projeto-cab hidden" id="projetoCabecalho"></div>
   <div class="mode-bar" id="modeBar">
     <span class="mode-label">Modo atual:</span>
     <button class="mode-btn" data-mode="meio">Meio período</button>
@@ -74,6 +77,12 @@
     <span class="mode-label">Bloqueadas:</span>
     <button class="mode-btn" data-showblocked="false">Escondidas</button>
     <button class="mode-btn" data-showblocked="true">Mostrar</button>
+  </div>
+
+  <div class="mode-bar hidden" id="projBar">
+    <span class="mode-label">Tarefas de projetos:</span>
+    <button class="mode-btn" data-showprojetos="false">Escondidas</button>
+    <button class="mode-btn" data-showprojetos="true">Mostrar</button>
   </div>
 
   <div class="add-box">
@@ -117,6 +126,16 @@
   <div class="cat-bar" id="catBar"></div>
   <div id="groups"></div>
   <div class="loading" id="loadingMsg">carregando...</div>
+  </div>
+
+  <div id="projetosScreen" class="hidden">
+    <div class="add-box">
+      <div class="add-row">
+        <input type="text" id="novoProjetoNome" placeholder="Novo projeto..." maxlength="60">
+        <button class="add-submit" id="btnNovoProjeto">Criar projeto</button>
+      </div>
+    </div>
+    <div id="projetosLista"></div>
   </div>
 
   <div id="gradeScreen" class="hidden">
@@ -244,10 +263,340 @@ function renderMetaBar(){
   document.querySelectorAll('.mode-btn[data-showblocked]').forEach(b => {
     b.classList.toggle('active', b.dataset.showblocked === String(showBlocked));
   });
+  // "Tarefas de projetos": só na Lista principal e só se existir algum projeto
+  document.getElementById('projBar').classList.toggle('hidden', !!projetoAtivo() || projetos.length === 0);
+  document.querySelectorAll('.mode-btn[data-showprojetos]').forEach(b => {
+    b.classList.toggle('active', b.dataset.showprojetos === String(showProjetoTarefas));
+  });
+}
+
+// ---------- Projetos ----------
+// Um projeto (usuarios/{uid}/projetos/{id}) tem nome, descrição e links (PDFs no Drive, sites...).
+// As tarefas dele são tarefas comuns com o campo projetoId: aparecem só dentro do projeto e
+// somem da Lista principal (a Lista tem "Tarefas de projetos: Mostrar" para ver tudo junto).
+// Dentro do projeto vale tudo da Lista (mini-passos, metas, descrição, bloqueio, pastas...).
+// A escolha de mostrar na Lista é só deste aparelho.
+const CHAVE_SHOW_PROJETOS = 'rotina.lista.showProjetos';
+let projetos = [];
+let projetosCarregados = false;   // enquanto não carregou, tarefas de projeto ficam fora da Lista
+let projetoAbertoId = null;
+let showProjetoTarefas = lerPreferencia(CHAVE_SHOW_PROJETOS) === '1';
+let unsubscribeProjetos = null;
+let assinaturaCabecalho = '';
+
+function projetosColRef(){ return collection(db, 'usuarios', currentUser.uid, 'projetos'); }
+// o projeto que está aberto agora (só vale na aba Projetos)
+function projetoAtivo(){ return telaAtual === 'projetos' ? projetoAbertoId : null; }
+function projetoPorId(id){ return projetos.find(p => p.id === id) || null; }
+function tarefaEhDeProjeto(t){
+  return !!t.projetoId && (!projetosCarregados || !!projetoPorId(t.projetoId));
+}
+// as tarefas que a tela atual considera: as do projeto aberto, ou as da Lista principal
+function tarefasDoEscopo(){
+  const ativo = projetoAtivo();
+  if(ativo) return tasks.filter(t => t.projetoId === ativo);
+  return showProjetoTarefas ? tasks : tasks.filter(t => !tarefaEhDeProjeto(t));
+}
+
+// aceita "drive.google.com/..." (põe https://); só deixa passar http e https
+function normalizarUrl(texto){
+  let t = (texto || '').trim();
+  if(!t) return null;
+  if(!/^[a-z][a-z0-9+.-]*:/i.test(t)) t = 'https://' + t;
+  try{
+    const u = new URL(t);
+    return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : null;
+  }catch(e){ return null; }
+}
+
+async function salvarProjeto(projeto){
+  if(!currentUser) return;
+  try{
+    await setDoc(doc(projetosColRef(), projeto.id), projeto);
+  }catch(e){
+    console.error('Falha ao salvar projeto', e);
+    document.getElementById('syncStatus').textContent = 'erro ao salvar projeto';
+  }
+}
+async function apagarProjetoDoc(id){
+  if(!currentUser) return;
+  try{ await deleteDoc(doc(projetosColRef(), id)); }
+  catch(e){ console.error('Falha ao apagar projeto', e); }
+}
+
+function criarProjeto(nome){
+  const n = (nome || '').trim();
+  if(!n) return;
+  const projeto = { id: 'p' + Date.now() + Math.random().toString(36).slice(2,6), nome: n, descricao: '', links: [], criadoEm: Date.now() };
+  projetos.push(projeto);
+  salvarProjeto(projeto);
+  abrirProjeto(projeto.id);
+}
+function abrirProjeto(id){
+  projetoAbertoId = id;
+  expandedTaskId = null;
+  atualizarTelas();
+  window.scrollTo(0, 0);
+}
+function fecharProjeto(){
+  projetoAbertoId = null;
+  atualizarTelas();
+}
+function renomearProjeto(id){
+  const p = projetoPorId(id);
+  if(!p) return;
+  const novo = window.prompt('Novo nome do projeto:', p.nome);
+  if(novo === null || !novo.trim() || novo.trim() === p.nome) return;
+  p.nome = novo.trim();
+  salvarProjeto(p);
+  renderProjetoCabecalho(true);
+  renderProjetos();
+}
+function apagarProjeto(id){
+  const p = projetoPorId(id);
+  if(!p) return;
+  const dele = tasks.filter(t => t.projetoId === id);
+  const ok = window.confirm('Apagar o projeto "' + p.nome + '"? ' + (dele.length
+    ? 'As ' + dele.length + ' tarefa(s) dele voltam para a Lista principal (nenhuma tarefa é apagada).'
+    : 'Ele não tem tarefas.'));
+  if(!ok) return;
+  dele.forEach(t => { delete t.projetoId; });
+  salvarVariasTarefas(dele, []);
+  projetos = projetos.filter(x => x.id !== id);
+  apagarProjetoDoc(id);
+  fecharProjeto();
+}
+function moverTarefaParaProjeto(taskId, projetoId){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  if(projetoId) task.projetoId = projetoId; else delete task.projetoId;
+  expandedTaskId = null;
+  render();
+  salvarTarefa(task);
+}
+
+// Painel "projeto:" ao editar uma tarefa: leva a tarefa para um projeto (ou de volta à Lista)
+function buildProjetoPanel(task){
+  if(projetos.length === 0 && !task.projetoId) return document.createDocumentFragment();
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+  const label = document.createElement('span');
+  label.textContent = 'projeto:';
+  row.appendChild(label);
+  const select = document.createElement('select');
+  const nenhum = document.createElement('option');
+  nenhum.value = ''; nenhum.textContent = 'nenhum (Lista principal)';
+  select.appendChild(nenhum);
+  projetos.forEach(pr => {
+    const o = document.createElement('option');
+    o.value = pr.id; o.textContent = pr.nome;
+    select.appendChild(o);
+  });
+  select.value = task.projetoId && projetoPorId(task.projetoId) ? task.projetoId : '';
+  row.appendChild(select);
+  const btn = document.createElement('button');
+  btn.textContent = 'mover';
+  btn.onclick = () => moverTarefaParaProjeto(task.id, select.value);
+  row.appendChild(btn);
+  panel.appendChild(row);
+  return panel;
+}
+
+// Aba Projetos: os cartões dos projetos
+function renderProjetos(){
+  const lista = document.getElementById('projetosLista');
+  lista.innerHTML = '';
+  if(projetosCarregados && projetos.length === 0){
+    const vazio = document.createElement('div');
+    vazio.className = 'projeto-vazio';
+    vazio.textContent = 'Nenhum projeto ainda. Crie um acima; dentro dele ficam a descrição, os links (PDFs do Drive etc.) e as tarefas só daquele assunto.';
+    lista.appendChild(vazio);
+    return;
+  }
+  projetos.forEach(pr => {
+    const dele = tasks.filter(t => t.projetoId === pr.id);
+    const pendentes = dele.filter(t => !isDone(t)).length;
+    const card = document.createElement('div');
+    card.className = 'projeto-card';
+    card.onclick = () => abrirProjeto(pr.id);
+    const nome = document.createElement('div');
+    nome.className = 'projeto-card-nome';
+    nome.textContent = '📁 ' + pr.nome;
+    card.appendChild(nome);
+    if(pr.descricao){
+      const d = document.createElement('div');
+      d.className = 'projeto-card-desc';
+      d.textContent = pr.descricao.length > 120 ? pr.descricao.slice(0, 120) + '…' : pr.descricao;
+      card.appendChild(d);
+    }
+    const info = document.createElement('div');
+    info.className = 'projeto-card-info';
+    const nLinks = (pr.links || []).length;
+    info.textContent = dele.length + ' tarefa(s) · ' + pendentes + ' pendente(s)' + (nLinks ? ' · 🔗 ' + nLinks : '');
+    card.appendChild(info);
+    lista.appendChild(card);
+  });
+}
+
+// Cabeçalho do projeto aberto (aparece no alto da tela de tarefas): nome, descrição e links.
+// Só é refeito se algo mudou — e nunca enquanto você está digitando nele.
+function renderProjetoCabecalho(forcar){
+  const el = document.getElementById('projetoCabecalho');
+  const pr = projetoAtivo() ? projetoPorId(projetoAtivo()) : null;
+  if(!pr){ el.classList.add('hidden'); el.innerHTML = ''; assinaturaCabecalho = ''; return; }
+  el.classList.remove('hidden');
+  const assinatura = JSON.stringify([pr.id, pr.nome, pr.descricao, pr.links]);
+  if(!forcar && assinatura === assinaturaCabecalho) return;
+  if(!forcar && el.contains(document.activeElement)) return;
+  assinaturaCabecalho = assinatura;
+  el.innerHTML = '';
+
+  const topo = document.createElement('div');
+  topo.className = 'projeto-topo';
+  const voltar = document.createElement('button');
+  voltar.className = 'projeto-btn';
+  voltar.textContent = '← Projetos';
+  voltar.onclick = fecharProjeto;
+  const titulo = document.createElement('h2');
+  titulo.className = 'projeto-titulo';
+  titulo.textContent = '📁 ' + pr.nome;
+  const renomear = document.createElement('button');
+  renomear.className = 'projeto-btn';
+  renomear.textContent = 'renomear';
+  renomear.onclick = () => renomearProjeto(pr.id);
+  const apagar = document.createElement('button');
+  apagar.className = 'projeto-btn perigo';
+  apagar.textContent = 'apagar projeto';
+  apagar.onclick = () => apagarProjeto(pr.id);
+  [voltar, titulo, renomear, apagar].forEach(x => topo.appendChild(x));
+  el.appendChild(topo);
+
+  // descrição / anotações do projeto (salva ao sair do campo)
+  const rotuloDesc = document.createElement('div');
+  rotuloDesc.className = 'projeto-rotulo';
+  rotuloDesc.textContent = 'Descrição e anotações';
+  el.appendChild(rotuloDesc);
+  const desc = document.createElement('textarea');
+  desc.className = 'projeto-descricao';
+  desc.rows = 4;
+  desc.placeholder = 'Do que é este projeto, combinados, o que falta...';
+  desc.value = pr.descricao || '';
+  desc.addEventListener('blur', () => {
+    if(desc.value === (pr.descricao || '')) return;
+    pr.descricao = desc.value;
+    assinaturaCabecalho = JSON.stringify([pr.id, pr.nome, pr.descricao, pr.links]);
+    salvarProjeto(pr);
+  });
+  el.appendChild(desc);
+
+  // links (PDFs guardados no Drive/Dropbox, sites, pastas...)
+  const rotuloLinks = document.createElement('div');
+  rotuloLinks.className = 'projeto-rotulo';
+  rotuloLinks.textContent = 'Links e PDFs';
+  el.appendChild(rotuloLinks);
+  (pr.links || []).forEach((l, i) => {
+    const linha = document.createElement('div');
+    linha.className = 'projeto-link';
+    const a = document.createElement('a');
+    a.href = l.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = '🔗 ' + (l.titulo || l.url);
+    a.title = l.url;
+    const x = document.createElement('button');
+    x.className = 'projeto-btn';
+    x.textContent = '×';
+    x.title = 'remover este link';
+    x.onclick = () => {
+      pr.links = pr.links.filter((_, j) => j !== i);
+      salvarProjeto(pr);
+      renderProjetoCabecalho(true);
+    };
+    linha.appendChild(a);
+    linha.appendChild(x);
+    el.appendChild(linha);
+  });
+  const novo = document.createElement('div');
+  novo.className = 'projeto-link-novo';
+  const inTitulo = document.createElement('input');
+  inTitulo.type = 'text'; inTitulo.maxLength = 80; inTitulo.placeholder = 'Título (ex: Edital em PDF)';
+  const inUrl = document.createElement('input');
+  inUrl.type = 'text'; inUrl.placeholder = 'Link (Drive, Dropbox, site...)';
+  const add = document.createElement('button');
+  add.className = 'projeto-btn';
+  add.textContent = 'adicionar link';
+  const adicionarLink = () => {
+    const url = normalizarUrl(inUrl.value);
+    if(!url){ mostrarAviso('Esse link não parece válido (use um endereço http/https).'); return; }
+    pr.links = (pr.links || []).concat([{ titulo: inTitulo.value.trim(), url }]);
+    salvarProjeto(pr);
+    renderProjetoCabecalho(true);
+  };
+  add.onclick = adicionarLink;
+  inUrl.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); adicionarLink(); } });
+  [inTitulo, inUrl, add].forEach(x => novo.appendChild(x));
+  el.appendChild(novo);
+
+  const rotuloTarefas = document.createElement('div');
+  rotuloTarefas.className = 'projeto-rotulo';
+  rotuloTarefas.textContent = 'Tarefas do projeto';
+  el.appendChild(rotuloTarefas);
+}
+
+// o que mostrar em cada aba (e refazer o que ficou desatualizado)
+function atualizarTelas(){
+  const noProjeto = !!projetoAtivo();
+  document.querySelectorAll('.tela-btn').forEach(b => b.classList.toggle('active', b.dataset.tela === telaAtual));
+  const listaVisivel = telaAtual === 'lista' || noProjeto;
+  document.getElementById('listaScreen').classList.toggle('hidden', !listaVisivel);
+  document.getElementById('projetosScreen').classList.toggle('hidden', !(telaAtual === 'projetos' && !noProjeto));
+  document.getElementById('gradeScreen').classList.toggle('hidden', telaAtual !== 'grade');
+  document.getElementById('calendarioScreen').classList.toggle('hidden', telaAtual !== 'calendario');
+  renderProjetoCabecalho(true);
+  renderProjetos();
+  if(telaAtual === 'grade') renderGrade();
+  if(telaAtual === 'calendario'){ renderCalendario(); buscarPrevisao(); }
+  if(listaVisivel) render();
+}
+// chegou mudança de projetos (de outro aparelho ou nossa): refaz só o que depende deles
+function aoMudarProjetos(){
+  if(projetoAbertoId && !projetoPorId(projetoAbertoId)) projetoAbertoId = null;
+  const noProjeto = !!projetoAtivo();
+  const listaVisivel = telaAtual === 'lista' || noProjeto;
+  document.getElementById('listaScreen').classList.toggle('hidden', !listaVisivel);
+  document.getElementById('projetosScreen').classList.toggle('hidden', !(telaAtual === 'projetos' && !noProjeto));
+  renderProjetoCabecalho(false);
+  renderProjetos();
+  if(listaVisivel) render();
+}
+function comecarAEscutarProjetos(){
+  pararDeEscutarProjetos();
+  projetosCarregados = false;
+  unsubscribeProjetos = onSnapshot(projetosColRef(), (snap) => {
+    projetos = snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (a.criadoEm || 0) - (b.criadoEm || 0));
+    projetosCarregados = true;
+    aoMudarProjetos();
+  }, (err) => {
+    // sem acesso à coleção (regras do Firestore): as tarefas não ficam escondidas por engano
+    console.error('Erro ao escutar projetos', err);
+    projetos = [];
+    projetosCarregados = true;
+    document.getElementById('syncStatus').textContent = 'projetos indisponíveis (veja as regras do Firestore)';
+    aoMudarProjetos();
+  });
+}
+function pararDeEscutarProjetos(){
+  if(unsubscribeProjetos){ unsubscribeProjetos(); unsubscribeProjetos = null; }
+  projetos = [];
+  projetosCarregados = false;
+  projetoAbertoId = null;
 }
 
 function distinctCategories(){
-  const set = new Set(tasks.map(t => t.category || 'Geral'));
+  const set = new Set(tarefasDoEscopo().map(t => t.category || 'Geral'));
   return Array.from(set).sort((a,b) => a.localeCompare(b, 'pt-BR'));
 }
 
@@ -532,7 +881,7 @@ let eventoEditandoId = null; // id do evento com o formulário de edição abert
 function getVisibleTasks(){
   const hoje = new Date().getDay();
   const categoriaAtual = categoriaEfetiva();
-  return tasks
+  return tarefasDoEscopo()
     .filter(t => categoriaAtual === 'all' || (t.category || 'Geral') === categoriaAtual)
     .filter(t => currentMode === 'ambos' || !t.regime || t.regime === currentMode)
     .filter(t => showBlocked || !tarefaTravada(t))
@@ -597,7 +946,7 @@ function getGroupsToRender(){
 }
 
 function distinctPastas(){
-  const set = new Set(tasks.map(t => t.pasta).filter(Boolean));
+  const set = new Set(tarefasDoEscopo().map(t => t.pasta).filter(Boolean));
   return Array.from(set).sort((a,b) => a.localeCompare(b, 'pt-BR'));
 }
 
@@ -606,7 +955,7 @@ function renomearPasta(nomeAntigo){
   if(novoNome === null) return; // cancelou
   const nome = novoNome.trim();
   if(!nome || nome === nomeAntigo) return;
-  const afetadas = tasks.filter(t => (t.pasta || null) === nomeAntigo);
+  const afetadas = tarefasDoEscopo().filter(t => (t.pasta || null) === nomeAntigo);
   afetadas.forEach(t => { t.pasta = nome; });
   render();
   salvarVariasTarefas(afetadas, []);
@@ -615,7 +964,7 @@ function renomearPasta(nomeAntigo){
 function desfazerPasta(nomePasta){
   const ok = window.confirm('Isso só solta as tarefas da pasta "' + nomePasta + '" — nenhuma tarefa é apagada. Continuar?');
   if(!ok) return;
-  const afetadas = tasks.filter(t => (t.pasta || null) === nomePasta);
+  const afetadas = tarefasDoEscopo().filter(t => (t.pasta || null) === nomePasta);
   afetadas.forEach(t => { t.pasta = null; });
   render();
   salvarVariasTarefas(afetadas, []);
@@ -1992,6 +2341,13 @@ function render(){
           tagsWrap.appendChild(catTag);
         }
 
+        if(task.projetoId && !projetoAtivo() && projetoPorId(task.projetoId)){
+          const projTag = document.createElement('span');
+          projTag.className = 'task-cat';
+          projTag.textContent = '📁 ' + projetoPorId(task.projetoId).nome;
+          tagsWrap.appendChild(projTag);
+        }
+
         if(task.pasta && viewMode !== 'pasta'){
           const pastaTag = document.createElement('span');
           pastaTag.className = 'task-pasta';
@@ -2055,6 +2411,7 @@ function render(){
           if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
           ul.appendChild(task.meta ? buildMetaPanel(task) : buildAddMetaPanel(task));
           ul.appendChild(buildBloqueioPanel(task));
+          ul.appendChild(buildProjetoPanel(task));
           ul.appendChild(buildDescricaoPanel(task));
         }
         // a descrição aberta pelo clique aparece acima dos mini-passos (no "editar"
@@ -2769,6 +3126,7 @@ function addTask(){
     doneKey: null,
     ordem: maiorOrdem + 1
   };
+  if(projetoAtivo()) novaTarefa.projetoId = projetoAtivo(); // criada dentro de um projeto
   tasks.push(novaTarefa);
   input.value = '';
   catInput.value = '';
@@ -2817,6 +3175,7 @@ function criarTarefaPorTexto(texto, freq){
     doneKey: null,
     ordem: maiorOrdem + 1
   };
+  if(projetoAtivo()) novaTarefa.projetoId = projetoAtivo();
   tasks.push(novaTarefa);
   render();
   salvarTarefa(novaTarefa);
@@ -2912,12 +3271,24 @@ document.getElementById('telaToggle').addEventListener('click', e => {
   const btn = e.target.closest('.tela-btn');
   if(!btn) return;
   setTelaAtual(btn.dataset.tela);
-  document.querySelectorAll('.tela-btn').forEach(b => b.classList.toggle('active', b.dataset.tela === telaAtual));
-  document.getElementById('listaScreen').classList.toggle('hidden', telaAtual !== 'lista');
-  document.getElementById('gradeScreen').classList.toggle('hidden', telaAtual !== 'grade');
-  document.getElementById('calendarioScreen').classList.toggle('hidden', telaAtual !== 'calendario');
-  if(telaAtual === 'grade') renderGrade();
-  if(telaAtual === 'calendario'){ renderCalendario(); buscarPrevisao(); }
+  if(telaAtual === 'projetos') projetoAbertoId = null; // tocar na aba volta para a lista de projetos
+  atualizarTelas();
+});
+
+document.getElementById('projBar').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if(!btn) return;
+  showProjetoTarefas = btn.dataset.showprojetos === 'true';
+  guardarPreferencia(CHAVE_SHOW_PROJETOS, showProjetoTarefas ? '1' : '0'); // só neste aparelho
+  render();
+});
+document.getElementById('btnNovoProjeto').onclick = () => {
+  const campo = document.getElementById('novoProjetoNome');
+  criarProjeto(campo.value);
+  campo.value = '';
+};
+document.getElementById('novoProjetoNome').addEventListener('keydown', e => {
+  if(e.key === 'Enter'){ e.preventDefault(); document.getElementById('btnNovoProjeto').click(); }
 });
 
 // ⚙ Configurações do Calendário: abre/fecha o painel; a caixinha liga os feriados
@@ -3240,12 +3611,14 @@ onAuthStateChanged(auth, async (user) => {
       salvarVariasTarefas
     });
     comecarAEscutarFeriados();
+    comecarAEscutarProjetos();
     buscarPrevisao();
   } else {
     appScreen.classList.add('hidden');
     loginScreen.classList.remove('hidden');
     pararDeEscutar();
     pararDeEscutarFeriados();
+    pararDeEscutarProjetos();
     tasks = [];
   }
 });
