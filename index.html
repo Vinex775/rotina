@@ -1,4 +1,4 @@
-<!-- Rotina — versão 9.12-dev (Projetos: nova aba "Projetos" — cada projeto tem descrição, links (PDFs no Drive etc.) e as próprias tarefas, que somem da Lista principal (a Lista tem "Tarefas de projetos: Mostrar" para vê-las juntas); mover uma tarefa para um projeto ao editar; 9.11: Calendário: previsão do tempo — uma nuvenzinha no canto de cada dia (hoje até ~15 dias à frente), ligada em ⚙ Configurações e valendo em todos os aparelhos; usa a localização do aparelho e o serviço gratuito Open-Meteo; 9.10: Calendário: a opção de mostrar feriados agora é da conta e vale em todos os aparelhos (fica no documento do usuário, como o modo); o aparelho que já tinha ligado sobe a escolha na primeira vez; 9.9: Calendário: feriados nacionais do Brasil, ligados em ⚙ Configurações (desligado por padrão, lembrado só neste aparelho); 9.8: Lista: dá para bloquear uma tarefa sem meta, só para parar de mostrá-la — botão "bloquear" ao editar; ela some da lista junto com as bloqueadas por meta, e volta com "Mostrar" ou "desbloquear"; 9.7: Lista: o aparelho lembra "Ver por", "Bloqueadas por meta" e a categoria escolhida, em vez de voltar ao padrão toda vez que o Rotina abre; 9.6: Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!-- Rotina — versão 9.13-dev (Lista: tocar no cadeado da meta (🔒 0/8.000) troca o número por um campo — digite o valor atual e Enter (ou saia do campo) para salvar, Esc cancela; sem precisar abrir o editar; 9.12: Projetos: nova aba "Projetos" — cada projeto tem descrição, links (PDFs no Drive etc.) e as próprias tarefas, que somem da Lista principal (a Lista tem "Tarefas de projetos: Mostrar" para vê-las juntas); mover uma tarefa para um projeto ao editar; 9.11: Calendário: previsão do tempo — uma nuvenzinha no canto de cada dia (hoje até ~15 dias à frente), ligada em ⚙ Configurações e valendo em todos os aparelhos; usa a localização do aparelho e o serviço gratuito Open-Meteo; 9.10: Calendário: a opção de mostrar feriados agora é da conta e vale em todos os aparelhos (fica no documento do usuário, como o modo); o aparelho que já tinha ligado sobe a escolha na primeira vez; 9.9: Calendário: feriados nacionais do Brasil, ligados em ⚙ Configurações (desligado por padrão, lembrado só neste aparelho); 9.8: Lista: dá para bloquear uma tarefa sem meta, só para parar de mostrá-la — botão "bloquear" ao editar; ela some da lista junto com as bloqueadas por meta, e volta com "Mostrar" ou "desbloquear"; 9.7: Lista: o aparelho lembra "Ver por", "Bloqueadas por meta" e a categoria escolhida, em vez de voltar ao padrão toda vez que o Rotina abre; 9.6: Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -772,6 +772,65 @@ function alternarBloqueio(taskId){
   task.bloqueada = !bloqueadaManual(task);
   render();
   salvarTarefa(task);
+}
+
+// Edição rápida do valor atual da meta, direto no cadeado da tarefa (🔒 0/8.000).
+// O estado fica aqui (e não só no campo) para o que você digitou sobreviver se a lista
+// for redesenhada no meio da edição (ex.: chegou uma mudança de outro aparelho).
+let metaEditandoId = null;
+let metaEditandoRascunho = '';
+function iniciarEdicaoMetaRapida(task){
+  metaEditandoId = task.id;
+  metaEditandoRascunho = String(task.meta.atual);
+  render();
+}
+function terminarEdicaoMetaRapida(task, salvar, valor){
+  if(metaEditandoId !== task.id) return; // já terminou (Enter seguido do blur, por exemplo)
+  metaEditandoId = null;
+  if(salvar && valor.trim() !== '' && !isNaN(Number(valor)) && Number(valor) !== task.meta.atual){
+    atualizarMeta(task.id, valor);      // redesenha e salva
+  }else{
+    render();                           // vazio, inválido ou igual: só fecha
+  }
+}
+// O "check" de uma tarefa travada: 🔒 progresso da meta (tocável) ou 🔒 bloqueada
+function construirCheckBloqueado(task){
+  const check = document.createElement('div');
+  check.className = 'check meta-locked';
+  if(!(task.meta && !metaAtingida(task))){
+    check.textContent = '🔒 bloqueada';
+    return check;
+  }
+  const alvoTexto = '/' + task.meta.alvo.toLocaleString('pt-BR');
+  if(metaEditandoId === task.id){
+    check.classList.add('editando');
+    check.onclick = (e) => e.stopPropagation();
+    check.appendChild(document.createTextNode('🔒 '));
+    const campo = document.createElement('input');
+    campo.type = 'number';
+    campo.min = '0';
+    campo.step = 'any';
+    campo.inputMode = 'decimal';
+    campo.className = 'meta-rapida-input';
+    campo.value = metaEditandoRascunho;
+    campo.setAttribute('aria-label', 'Valor atual da meta');
+    campo.addEventListener('input', () => { metaEditandoRascunho = campo.value; });
+    campo.addEventListener('keydown', e => {
+      if(e.key === 'Enter'){ e.preventDefault(); terminarEdicaoMetaRapida(task, true, campo.value); }
+      else if(e.key === 'Escape'){ e.preventDefault(); terminarEdicaoMetaRapida(task, false, ''); }
+    });
+    campo.addEventListener('blur', () => terminarEdicaoMetaRapida(task, true, campo.value));
+    check.appendChild(campo);
+    check.appendChild(document.createTextNode(alvoTexto));
+    // depois que a lista é desenhada: foca e seleciona o número para já digitar por cima
+    setTimeout(() => { if(campo.isConnected && document.activeElement !== campo){ campo.focus(); campo.select(); } }, 0);
+  }else{
+    check.classList.add('editavel');
+    check.textContent = '🔒 ' + task.meta.atual.toLocaleString('pt-BR') + alvoTexto;
+    check.title = 'Toque para alterar o valor atual';
+    check.onclick = (e) => { e.stopPropagation(); iniciarEdicaoMetaRapida(task); };
+  }
+  return check;
 }
 
 function atualizarMeta(taskId, novoValor){
@@ -2259,7 +2318,7 @@ function render(){
 
         const temPassos = task.subtasks && task.subtasks.length > 0;
 
-        const check = document.createElement('div');
+        let check = document.createElement('div');
         const comDescricao = temDescricao(task);
         const abrirOuFecharClique = () => {
           subtasksOpenId = (subtasksOpenId === task.id) ? null : task.id;
@@ -2268,10 +2327,7 @@ function render(){
         if(bloqueadaPorMeta){
           // travada: mostra o progresso da meta no lugar do check, sem
           // dar pra marcar enquanto não bater o valor alvo
-          check.className = 'check meta-locked';
-          check.textContent = (task.meta && !metaAtingida(task))
-            ? '🔒 ' + task.meta.atual.toLocaleString('pt-BR') + '/' + task.meta.alvo.toLocaleString('pt-BR')
-            : '🔒 bloqueada';
+          check = construirCheckBloqueado(task);
           if(comDescricao){
             li.onclick = abrirOuFecharClique;
             li.style.cursor = 'pointer';

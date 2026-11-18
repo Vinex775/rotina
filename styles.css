@@ -439,6 +439,20 @@
     color: var(--once-ink);
     cursor: default;
   }
+  .check.meta-locked.editavel{ cursor: pointer; }
+  .check.meta-locked.editavel:hover{ border-color: var(--margin); color: var(--margin); }
+  .check.meta-locked.editando{ cursor: default; }
+  .meta-rapida-input{
+    width: 8ch;
+    min-width: 6ch;
+    font-family: inherit;
+    font-size: 16px;           /* 16px: abaixo disso o iPhone dá zoom na tela ao focar o campo */
+    padding: 1px 3px;
+    border: 1px solid var(--margin);
+    border-radius: 2px;
+    background: #fff;
+    color: var(--ink);
+  }
   ul.tasks li.meta-bloqueada{
     opacity: 0.6;
   }
