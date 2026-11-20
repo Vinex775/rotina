@@ -214,6 +214,36 @@ async function processarFila(){
 }
 window.addEventListener('online', () => { esperaMs = 0; processarFila(); refazerTudo(); });
 
+// ---- fechar a aba com alteração ainda não confirmada pelo servidor ----
+// A fila é a fonte da verdade: se tem algo nela (de QUALQUER coleção: tarefas, grade,
+// calendário, projetos, modo), o servidor ainda não confirmou.
+export function temGravacaoPendente(){ return fila.length > 0; }
+
+// 1) O navegador pergunta "tem certeza que quer sair?" enquanto houver algo na fila.
+window.addEventListener('beforeunload', (e) => {
+  if(temGravacaoPendente()){
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+// 2) Última tentativa ao esconder/fechar a página (no celular o aviso acima nem aparece):
+// manda a fila inteira de uma vez com "keepalive", que o navegador termina de enviar mesmo
+// com a aba já fechada. Não tira nada da fila: se não der certo, ela é reenviada na próxima
+// abertura (as operações são "gravar/apagar este documento", então repetir é inofensivo).
+function despejarFila(){
+  if(!fila.length || !usuarioAtual) return;
+  const ops = fila.flatMap(item => item.ops);
+  if(ops.length === 0 || ops.length > 500) return;
+  const corpo = JSON.stringify({ ops });
+  if(corpo.length > 60000) return;   // keepalive aceita ~64 KB no total
+  try{
+    fetch('api/ops', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: corpo, credentials: 'same-origin', keepalive: true }).catch(() => {});
+  }catch(e){}
+}
+window.addEventListener('pagehide', despejarFila);
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden') despejarFila(); });
+
 // ------------------------------------------------------------ gravar / ler
 export function setDoc(ref, data, opcoes){
   return enfileirar([{ tipo: 'set', path: ref.path, data, merge: !!(opcoes && opcoes.merge) }]);
