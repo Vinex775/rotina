@@ -1,0 +1,3681 @@
+<!-- Rotina — versão 9.14-dev (servidor próprio: dados, login e avisos saem do Firebase/Cloudflare e passam a rodar no servidor caseiro; 9.13: Lista: tocar no cadeado da meta (🔒 0/8.000) troca o número por um campo — digite o valor atual e Enter (ou saia do campo) para salvar, Esc cancela; sem precisar abrir o editar; 9.12: Projetos: nova aba "Projetos" — cada projeto tem descrição, links (PDFs no Drive etc.) e as próprias tarefas, que somem da Lista principal (a Lista tem "Tarefas de projetos: Mostrar" para vê-las juntas); mover uma tarefa para um projeto ao editar; 9.11: Calendário: previsão do tempo — uma nuvenzinha no canto de cada dia (hoje até ~15 dias à frente), ligada em ⚙ Configurações e valendo em todos os aparelhos; usa a localização do aparelho e o serviço gratuito Open-Meteo; 9.10: Calendário: a opção de mostrar feriados agora é da conta e vale em todos os aparelhos (fica no documento do usuário, como o modo); o aparelho que já tinha ligado sobe a escolha na primeira vez; 9.9: Calendário: feriados nacionais do Brasil, ligados em ⚙ Configurações (desligado por padrão, lembrado só neste aparelho); 9.8: Lista: dá para bloquear uma tarefa sem meta, só para parar de mostrá-la — botão "bloquear" ao editar; ela some da lista junto com as bloqueadas por meta, e volta com "Mostrar" ou "desbloquear"; 9.7: Lista: o aparelho lembra "Ver por", "Bloqueadas por meta" e a categoria escolhida, em vez de voltar ao padrão toda vez que o Rotina abre; 9.6: Grade Horária: mostra 7 dias que andam com o hoje — 3 antes, hoje no meio, 3 depois, cada um com a data — e os eventos do Calendário (só para ver; tocar abre o evento no Calendário), com um botão para mostrar/esconder os eventos, lembrado só neste aparelho; 9.5: Calendário: cada evento pode avisar por notificação — N dias antes num horário à escolha, ou X min/h antes do horário do evento; eventos novos já vêm com "1 dia antes, às 09:00", eventos antigos ficam sem aviso; 9.4: Grade Horária: cada bloco escolhe quanto tempo antes avisar por notificação — lista pronta, personalizado até 12 h, ou sem aviso; editar o horário ou o aviso de um bloco já avisado hoje permite avisar de novo; 9.3: criar tarefas e eventos por voz: botão do microfone, atalho do ícone e voz.js; 9.2: Grade Horária: seletor de cor nos blocos; 9.1: correção: tarefas feitas na semana passada não ficam mais com contorno vermelho por causa de cache defasado; 9.0: Lista de tarefas: descrição nas tarefas, abre ao clicar na tarefa; 8.9: Calendário: título do evento quebra em 2 linhas quando há espaço livre embaixo, sem "..."; 8.8: anotações nos eventos; 8.7: eventos de vários dias viram barra contínua estilo Google Agenda; 8.6: seletor de cor nos eventos; 8.5: app instalável: manifest.json, ícones e atalhos no ícone; 8.4: Grade: bloco editado reordena na hora pelo novo horário; 8.3: correção: botão de ordem sequencial some ao apagar todos os passos; 8.2: correção mobile: barra "Ver por" e nomes longos na Grade Horária não estouram mais a tela; separação em arquivos, etapa 2/3: sync.js extraído (motor de sincronização com o Firestore); index.html ainda concentra tasks/grade/calendário) -->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rotina</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#F5F2EA">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+</head>
+<body>
+
+<!-- ===== TELA DE CARREGAMENTO =====
+     Aparece enquanto o Firebase ainda está lendo a sessão salva no aparelho.
+     Sem ela, a tela de login piscava por um instante mesmo com você já logado. -->
+<div class="login-wrap" id="carregandoScreen">
+  <h1>Rotina</h1>
+  <div class="login-sub">carregando...</div>
+</div>
+
+<!-- ===== TELA DE LOGIN ===== -->
+<div class="login-wrap hidden" id="loginScreen">
+  <h1>Rotina</h1>
+  <div class="login-sub">entre com o mesmo e-mail e senha em todos os seus dispositivos</div>
+  <input type="email" id="loginEmail" placeholder="seu e-mail" autocomplete="email">
+  <input type="password" id="loginSenha" placeholder="sua senha (mínimo 6 caracteres)" autocomplete="current-password">
+  <div class="login-btns">
+    <button id="btnEntrar">Entrar</button>
+    <button id="btnCriarConta">Criar conta</button>
+  </div>
+  <div class="login-error" id="loginError"></div>
+</div>
+
+<!-- ===== APP PRINCIPAL ===== -->
+<div class="page hidden" id="appScreen">
+  <header>
+    <h1>Rotina</h1>
+    <div class="today" id="todayLabel"></div>
+  </header>
+
+  <div class="account-bar">
+    <span id="accountEmail"></span>
+    <span class="sync-status" id="syncStatus"></span>
+    <button id="btnAtivarNotificacoes">🔔 Notificações</button>
+    <button id="btnSair">Sair</button>
+  </div>
+
+  <div class="tela-toggle" id="telaToggle">
+    <button class="tela-btn active" data-tela="lista">Lista de tarefas</button>
+    <button class="tela-btn" data-tela="projetos">Projetos</button>
+    <button class="tela-btn" data-tela="grade">Grade Horária</button>
+    <button class="tela-btn" data-tela="calendario">Calendário</button>
+  </div>
+
+  <div id="listaScreen">
+  <!-- cabeçalho do projeto aberto (descrição e links): montado por renderProjetoCabecalho() -->
+  <div class="projeto-cab hidden" id="projetoCabecalho"></div>
+  <div class="mode-bar" id="modeBar">
+    <span class="mode-label">Modo atual:</span>
+    <button class="mode-btn" data-mode="meio">Meio período</button>
+    <button class="mode-btn" data-mode="integral">Integral</button>
+    <button class="mode-btn" data-mode="ambos">Ambos</button>
+  </div>
+
+  <div class="mode-bar" id="viewBar">
+    <span class="mode-label">Ver por:</span>
+    <button class="mode-btn" data-view="freq">Frequência</button>
+    <button class="mode-btn" data-view="pasta">Pasta</button>
+    <button class="mode-btn" data-view="data-antigas">Data (mais antigas)</button>
+    <button class="mode-btn" data-view="data-recentes">Data (mais recentes)</button>
+  </div>
+
+  <div class="mode-bar" id="metaBar">
+    <span class="mode-label">Bloqueadas:</span>
+    <button class="mode-btn" data-showblocked="false">Escondidas</button>
+    <button class="mode-btn" data-showblocked="true">Mostrar</button>
+  </div>
+
+  <div class="mode-bar hidden" id="projBar">
+    <span class="mode-label">Tarefas de projetos:</span>
+    <button class="mode-btn" data-showprojetos="false">Escondidas</button>
+    <button class="mode-btn" data-showprojetos="true">Mostrar</button>
+  </div>
+
+  <div class="add-box">
+    <div class="add-row">
+      <div class="add-text-row">
+        <input type="text" id="newTaskText" placeholder="Nova tarefa..." maxlength="120">
+        <button type="button" id="micBtn" class="mic-btn" title="Criar por voz" aria-label="Criar por voz">🎤</button>
+      </div>
+      <input type="text" id="newTaskCategory" placeholder="Categoria (ex: Faculdade)" maxlength="40" list="categoryOptions">
+      <datalist id="categoryOptions"></datalist>
+      <input type="text" id="newTaskPasta" placeholder="Pasta (opcional)" maxlength="40" list="pastaOptions">
+      <datalist id="pastaOptions"></datalist>
+      <select id="newTaskRegime" class="hidden">
+        <option value="">Regime: nenhum</option>
+        <option value="meio">Regime: meio período</option>
+        <option value="integral">Regime: integral</option>
+      </select>
+      <label class="meta-toggle-label">
+        <input type="checkbox" id="newTaskTemMeta"> tem meta?
+      </label>
+      <input type="number" id="newTaskMetaAlvo" placeholder="Meta (ex: 8000)" class="hidden" min="0" step="0.01">
+      <div class="freq-picker" id="freqPicker">
+        <button class="freq-btn active" data-freq="daily">Diária</button>
+        <button class="freq-btn" data-freq="weekly">Semanal</button>
+        <button class="freq-btn" data-freq="monthly">Mensal</button>
+        <button class="freq-btn" data-freq="once">Única</button>
+      </div>
+      <div class="day-picker" id="dayPicker">
+        <button class="day-btn active" data-day="0">D</button>
+        <button class="day-btn active" data-day="1">S</button>
+        <button class="day-btn active" data-day="2">T</button>
+        <button class="day-btn active" data-day="3">Q</button>
+        <button class="day-btn active" data-day="4">Q</button>
+        <button class="day-btn active" data-day="5">S</button>
+        <button class="day-btn active" data-day="6">S</button>
+      </div>
+      <button class="add-submit" id="addBtn">Adicionar</button>
+    </div>
+  </div>
+
+  <div class="cat-bar" id="catBar"></div>
+  <div id="groups"></div>
+  <div class="loading" id="loadingMsg">carregando...</div>
+  </div>
+
+  <div id="projetosScreen" class="hidden">
+    <div class="add-box">
+      <div class="add-row">
+        <input type="text" id="novoProjetoNome" placeholder="Novo projeto..." maxlength="60">
+        <button class="add-submit" id="btnNovoProjeto">Criar projeto</button>
+      </div>
+    </div>
+    <div id="projetosLista"></div>
+  </div>
+
+  <div id="gradeScreen" class="hidden">
+    <!-- 7 dias que andam com o hoje (3 antes, hoje, 3 depois): os botões são montados por renderDiaSeletor() -->
+    <div class="day-picker grade-dias" id="diaSeletor"></div>
+    <div class="grade-header" id="gradeHeader">
+      <span id="gradeHeaderTexto"></span>
+      <button type="button" class="grade-eventos-btn" id="btnEventosGrade"></button>
+    </div>
+    <div id="gradeSlots"></div>
+  </div>
+
+  <div id="calendarioScreen" class="hidden">
+    <div class="cal-nav">
+      <button id="calPrevMes">◀ anterior</button>
+      <span id="calendarioLabel" class="cal-label"></span>
+      <button id="calNextMes">próximo ▶</button>
+    </div>
+    <div class="cal-config">
+      <button type="button" id="calConfigBtn" aria-expanded="false">⚙ Configurações</button>
+      <div class="cal-config-painel hidden" id="calConfigPainel">
+        <label><input type="checkbox" id="calFeriadosCheck"> Mostrar feriados nacionais</label>
+        <label class="cal-config-linha"><input type="checkbox" id="calPrevisaoCheck"> Mostrar previsão do tempo</label>
+        <div class="cal-config-status" id="calPrevisaoStatus"></div>
+      </div>
+    </div>
+    <div class="cal-weekdays">
+      <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+    </div>
+    <div class="cal-grid" id="calendarioGrid"></div>
+    <div id="calendarioFormArea"></div>
+  </div>
+</div>
+
+<script type="module">
+// ============================================================
+// SERVIDOR PRÓPRIO: login e dados ficam no servidor caseiro do Rotina.
+// banco.js tem as mesmas funções que o Firebase tinha (doc, setDoc,
+// onSnapshot, signInWithEmailAndPassword...), por isso o resto do app
+// continua igual.
+// ============================================================
+import {
+  createUserWithEmailAndPassword, signInWithEmailAndPassword,
+  signOut, onAuthStateChanged,
+  doc, setDoc, getDoc, deleteDoc, collection, writeBatch, onSnapshot,
+  auth, db
+} from './banco.js';
+
+import { currentUser, setCurrentUser, telaAtual, setTelaAtual } from './estado.js';
+import { ativarNotificacoes } from './notifications.js';
+import {
+  tarefasColRef, blocosColRef, eventosColRef, usuarioDocRef,
+  isApplyingRemoteData, salvarModo, migrarDadosAntigosSeNecessario,
+  comecarAEscutarDados, pararDeEscutar, manutencaoLiberada
+} from './sync.js';
+import { abrirPainelDeVoz } from './voz.js';
+
+
+// ---------- Estado do app (igual antes) ----------
+let tasks = [];
+let selectedFreq = 'daily';
+let diasSelecionados = new Set([0,1,2,3,4,5,6]); // formulário de nova tarefa: começa com todos os dias
+let expandedTaskId = null;
+let subtasksOpenId = null; // controla só a visibilidade dos mini-passos ao clicar na tarefa mãe (separado do "editar")
+let focarCampoDeNomeAoAbrir = false; // liga só no instante em que "editar" é clicado
+let editingSubtaskId = null; // qual mini-passo está com o texto em edição no momento
+let focarSubtaskAoEditar = false; // liga só no instante em que se clica pra editar um passo
+// ---------- Opções da Lista que ESTE aparelho lembra ----------
+// "Ver por", "Bloqueadas por meta" e a categoria escolhida ficam guardadas no navegador
+// deste aparelho (localStorage), então ao abrir o Rotina de novo tudo continua como você
+// deixou. Não vão para o Firestore: cada aparelho lembra a sua própria escolha. Se o
+// navegador bloquear o armazenamento, o app funciona igual, só não lembra.
+const PREFS_LISTA = {
+  view: 'rotina.lista.viewMode',
+  bloqueadas: 'rotina.lista.showBlocked',
+  categoria: 'rotina.lista.categoria'
+};
+const VIEW_MODES_VALIDOS = ['freq', 'pasta', 'data-antigas', 'data-recentes'];
+function lerPreferencia(chave){
+  try{ return localStorage.getItem(chave); }catch(e){ return null; }
+}
+function guardarPreferencia(chave, valor){
+  try{ localStorage.setItem(chave, valor); }catch(e){ /* sem localStorage: só não lembra */ }
+}
+let selectedCategory = lerPreferencia(PREFS_LISTA.categoria) || 'all';
+let currentMode = 'ambos';
+
+// O sync.js não pode mudar essas variáveis direto (são daqui), então ele
+// chama estas pequenas funções, que fazem a troca por ele.
+function setTasks(lista){ tasks = lista; }
+function setBlocos(lista){ blocos = lista; }
+function setEventos(lista){
+  eventos = lista;
+  // O Worker grava "ultimaNotificacao" nos eventos a cada aviso: isso não muda nada do que a
+  // Grade mostra, então só redesenha se título, data, horário, repetição ou cor mudaram
+  // (assim um formulário de bloco aberto não é apagado à toa).
+  const nova = lista.map(e => [e.id, e.titulo, e.dataInicio, e.dataFim, e.horario, e.recorrencia, e.cor].join('|')).sort().join('\n');
+  if(nova !== assinaturaEventosGrade){
+    assinaturaEventosGrade = nova;
+    if(telaAtual === 'grade') renderGrade();
+  }
+}
+function setCurrentMode(modo){ currentMode = modo; }
+
+function renderModeBar(){
+  document.querySelectorAll('.mode-btn[data-mode]').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === currentMode);
+  });
+  // O Regime (meio período/integral) só existe em tarefas de "Trabalho",
+  // então esse filtro só faz sentido aparecer vendo "Trabalho" ou "Todas".
+  const categoriaAtual = categoriaEfetiva();
+  const relevante = categoriaAtual === 'all' || categoriaAtual.toLowerCase() === 'trabalho';
+  document.getElementById('modeBar').classList.toggle('hidden', !relevante);
+}
+
+function renderViewBar(){
+  document.querySelectorAll('.mode-btn[data-view]').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === viewMode);
+  });
+}
+
+function renderMetaBar(){
+  document.querySelectorAll('.mode-btn[data-showblocked]').forEach(b => {
+    b.classList.toggle('active', b.dataset.showblocked === String(showBlocked));
+  });
+  // "Tarefas de projetos": só na Lista principal e só se existir algum projeto
+  document.getElementById('projBar').classList.toggle('hidden', !!projetoAtivo() || projetos.length === 0);
+  document.querySelectorAll('.mode-btn[data-showprojetos]').forEach(b => {
+    b.classList.toggle('active', b.dataset.showprojetos === String(showProjetoTarefas));
+  });
+}
+
+// ---------- Projetos ----------
+// Um projeto (usuarios/{uid}/projetos/{id}) tem nome, descrição e links (PDFs no Drive, sites...).
+// As tarefas dele são tarefas comuns com o campo projetoId: aparecem só dentro do projeto e
+// somem da Lista principal (a Lista tem "Tarefas de projetos: Mostrar" para ver tudo junto).
+// Dentro do projeto vale tudo da Lista (mini-passos, metas, descrição, bloqueio, pastas...).
+// A escolha de mostrar na Lista é só deste aparelho.
+const CHAVE_SHOW_PROJETOS = 'rotina.lista.showProjetos';
+let projetos = [];
+let projetosCarregados = false;   // enquanto não carregou, tarefas de projeto ficam fora da Lista
+let projetoAbertoId = null;
+let showProjetoTarefas = lerPreferencia(CHAVE_SHOW_PROJETOS) === '1';
+let unsubscribeProjetos = null;
+let assinaturaCabecalho = '';
+
+function projetosColRef(){ return collection(db, 'usuarios', currentUser.uid, 'projetos'); }
+// o projeto que está aberto agora (só vale na aba Projetos)
+function projetoAtivo(){ return telaAtual === 'projetos' ? projetoAbertoId : null; }
+function projetoPorId(id){ return projetos.find(p => p.id === id) || null; }
+function tarefaEhDeProjeto(t){
+  return !!t.projetoId && (!projetosCarregados || !!projetoPorId(t.projetoId));
+}
+// as tarefas que a tela atual considera: as do projeto aberto, ou as da Lista principal
+function tarefasDoEscopo(){
+  const ativo = projetoAtivo();
+  if(ativo) return tasks.filter(t => t.projetoId === ativo);
+  return showProjetoTarefas ? tasks : tasks.filter(t => !tarefaEhDeProjeto(t));
+}
+
+// aceita "drive.google.com/..." (põe https://); só deixa passar http e https
+function normalizarUrl(texto){
+  let t = (texto || '').trim();
+  if(!t) return null;
+  if(!/^[a-z][a-z0-9+.-]*:/i.test(t)) t = 'https://' + t;
+  try{
+    const u = new URL(t);
+    return (u.protocol === 'http:' || u.protocol === 'https:') ? u.href : null;
+  }catch(e){ return null; }
+}
+
+async function salvarProjeto(projeto){
+  if(!currentUser) return;
+  try{
+    await setDoc(doc(projetosColRef(), projeto.id), projeto);
+  }catch(e){
+    console.error('Falha ao salvar projeto', e);
+    document.getElementById('syncStatus').textContent = 'erro ao salvar projeto';
+  }
+}
+async function apagarProjetoDoc(id){
+  if(!currentUser) return;
+  try{ await deleteDoc(doc(projetosColRef(), id)); }
+  catch(e){ console.error('Falha ao apagar projeto', e); }
+}
+
+function criarProjeto(nome){
+  const n = (nome || '').trim();
+  if(!n) return;
+  const projeto = { id: 'p' + Date.now() + Math.random().toString(36).slice(2,6), nome: n, descricao: '', links: [], criadoEm: Date.now() };
+  projetos.push(projeto);
+  salvarProjeto(projeto);
+  abrirProjeto(projeto.id);
+}
+function abrirProjeto(id){
+  projetoAbertoId = id;
+  expandedTaskId = null;
+  atualizarTelas();
+  window.scrollTo(0, 0);
+}
+function fecharProjeto(){
+  projetoAbertoId = null;
+  atualizarTelas();
+}
+function renomearProjeto(id){
+  const p = projetoPorId(id);
+  if(!p) return;
+  const novo = window.prompt('Novo nome do projeto:', p.nome);
+  if(novo === null || !novo.trim() || novo.trim() === p.nome) return;
+  p.nome = novo.trim();
+  salvarProjeto(p);
+  renderProjetoCabecalho(true);
+  renderProjetos();
+}
+function apagarProjeto(id){
+  const p = projetoPorId(id);
+  if(!p) return;
+  const dele = tasks.filter(t => t.projetoId === id);
+  const ok = window.confirm('Apagar o projeto "' + p.nome + '"? ' + (dele.length
+    ? 'As ' + dele.length + ' tarefa(s) dele voltam para a Lista principal (nenhuma tarefa é apagada).'
+    : 'Ele não tem tarefas.'));
+  if(!ok) return;
+  dele.forEach(t => { delete t.projetoId; });
+  salvarVariasTarefas(dele, []);
+  projetos = projetos.filter(x => x.id !== id);
+  apagarProjetoDoc(id);
+  fecharProjeto();
+}
+function moverTarefaParaProjeto(taskId, projetoId){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  if(projetoId) task.projetoId = projetoId; else delete task.projetoId;
+  expandedTaskId = null;
+  render();
+  salvarTarefa(task);
+}
+
+// Painel "projeto:" ao editar uma tarefa: leva a tarefa para um projeto (ou de volta à Lista)
+function buildProjetoPanel(task){
+  if(projetos.length === 0 && !task.projetoId) return document.createDocumentFragment();
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+  const label = document.createElement('span');
+  label.textContent = 'projeto:';
+  row.appendChild(label);
+  const select = document.createElement('select');
+  const nenhum = document.createElement('option');
+  nenhum.value = ''; nenhum.textContent = 'nenhum (Lista principal)';
+  select.appendChild(nenhum);
+  projetos.forEach(pr => {
+    const o = document.createElement('option');
+    o.value = pr.id; o.textContent = pr.nome;
+    select.appendChild(o);
+  });
+  select.value = task.projetoId && projetoPorId(task.projetoId) ? task.projetoId : '';
+  row.appendChild(select);
+  const btn = document.createElement('button');
+  btn.textContent = 'mover';
+  btn.onclick = () => moverTarefaParaProjeto(task.id, select.value);
+  row.appendChild(btn);
+  panel.appendChild(row);
+  return panel;
+}
+
+// Aba Projetos: os cartões dos projetos
+function renderProjetos(){
+  const lista = document.getElementById('projetosLista');
+  lista.innerHTML = '';
+  if(projetosCarregados && projetos.length === 0){
+    const vazio = document.createElement('div');
+    vazio.className = 'projeto-vazio';
+    vazio.textContent = 'Nenhum projeto ainda. Crie um acima; dentro dele ficam a descrição, os links (PDFs do Drive etc.) e as tarefas só daquele assunto.';
+    lista.appendChild(vazio);
+    return;
+  }
+  projetos.forEach(pr => {
+    const dele = tasks.filter(t => t.projetoId === pr.id);
+    const pendentes = dele.filter(t => !isDone(t)).length;
+    const card = document.createElement('div');
+    card.className = 'projeto-card';
+    card.onclick = () => abrirProjeto(pr.id);
+    const nome = document.createElement('div');
+    nome.className = 'projeto-card-nome';
+    nome.textContent = '📁 ' + pr.nome;
+    card.appendChild(nome);
+    if(pr.descricao){
+      const d = document.createElement('div');
+      d.className = 'projeto-card-desc';
+      d.textContent = pr.descricao.length > 120 ? pr.descricao.slice(0, 120) + '…' : pr.descricao;
+      card.appendChild(d);
+    }
+    const info = document.createElement('div');
+    info.className = 'projeto-card-info';
+    const nLinks = (pr.links || []).length;
+    info.textContent = dele.length + ' tarefa(s) · ' + pendentes + ' pendente(s)' + (nLinks ? ' · 🔗 ' + nLinks : '');
+    card.appendChild(info);
+    lista.appendChild(card);
+  });
+}
+
+// Cabeçalho do projeto aberto (aparece no alto da tela de tarefas): nome, descrição e links.
+// Só é refeito se algo mudou — e nunca enquanto você está digitando nele.
+function renderProjetoCabecalho(forcar){
+  const el = document.getElementById('projetoCabecalho');
+  const pr = projetoAtivo() ? projetoPorId(projetoAtivo()) : null;
+  if(!pr){ el.classList.add('hidden'); el.innerHTML = ''; assinaturaCabecalho = ''; return; }
+  el.classList.remove('hidden');
+  const assinatura = JSON.stringify([pr.id, pr.nome, pr.descricao, pr.links]);
+  if(!forcar && assinatura === assinaturaCabecalho) return;
+  if(!forcar && el.contains(document.activeElement)) return;
+  assinaturaCabecalho = assinatura;
+  el.innerHTML = '';
+
+  const topo = document.createElement('div');
+  topo.className = 'projeto-topo';
+  const voltar = document.createElement('button');
+  voltar.className = 'projeto-btn';
+  voltar.textContent = '← Projetos';
+  voltar.onclick = fecharProjeto;
+  const titulo = document.createElement('h2');
+  titulo.className = 'projeto-titulo';
+  titulo.textContent = '📁 ' + pr.nome;
+  const renomear = document.createElement('button');
+  renomear.className = 'projeto-btn';
+  renomear.textContent = 'renomear';
+  renomear.onclick = () => renomearProjeto(pr.id);
+  const apagar = document.createElement('button');
+  apagar.className = 'projeto-btn perigo';
+  apagar.textContent = 'apagar projeto';
+  apagar.onclick = () => apagarProjeto(pr.id);
+  [voltar, titulo, renomear, apagar].forEach(x => topo.appendChild(x));
+  el.appendChild(topo);
+
+  // descrição / anotações do projeto (salva ao sair do campo)
+  const rotuloDesc = document.createElement('div');
+  rotuloDesc.className = 'projeto-rotulo';
+  rotuloDesc.textContent = 'Descrição e anotações';
+  el.appendChild(rotuloDesc);
+  const desc = document.createElement('textarea');
+  desc.className = 'projeto-descricao';
+  desc.rows = 4;
+  desc.placeholder = 'Do que é este projeto, combinados, o que falta...';
+  desc.value = pr.descricao || '';
+  desc.addEventListener('blur', () => {
+    if(desc.value === (pr.descricao || '')) return;
+    pr.descricao = desc.value;
+    assinaturaCabecalho = JSON.stringify([pr.id, pr.nome, pr.descricao, pr.links]);
+    salvarProjeto(pr);
+  });
+  el.appendChild(desc);
+
+  // links (PDFs guardados no Drive/Dropbox, sites, pastas...)
+  const rotuloLinks = document.createElement('div');
+  rotuloLinks.className = 'projeto-rotulo';
+  rotuloLinks.textContent = 'Links e PDFs';
+  el.appendChild(rotuloLinks);
+  (pr.links || []).forEach((l, i) => {
+    const linha = document.createElement('div');
+    linha.className = 'projeto-link';
+    const a = document.createElement('a');
+    a.href = l.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = '🔗 ' + (l.titulo || l.url);
+    a.title = l.url;
+    const x = document.createElement('button');
+    x.className = 'projeto-btn';
+    x.textContent = '×';
+    x.title = 'remover este link';
+    x.onclick = () => {
+      pr.links = pr.links.filter((_, j) => j !== i);
+      salvarProjeto(pr);
+      renderProjetoCabecalho(true);
+    };
+    linha.appendChild(a);
+    linha.appendChild(x);
+    el.appendChild(linha);
+  });
+  const novo = document.createElement('div');
+  novo.className = 'projeto-link-novo';
+  const inTitulo = document.createElement('input');
+  inTitulo.type = 'text'; inTitulo.maxLength = 80; inTitulo.placeholder = 'Título (ex: Edital em PDF)';
+  const inUrl = document.createElement('input');
+  inUrl.type = 'text'; inUrl.placeholder = 'Link (Drive, Dropbox, site...)';
+  const add = document.createElement('button');
+  add.className = 'projeto-btn';
+  add.textContent = 'adicionar link';
+  const adicionarLink = () => {
+    const url = normalizarUrl(inUrl.value);
+    if(!url){ mostrarAviso('Esse link não parece válido (use um endereço http/https).'); return; }
+    pr.links = (pr.links || []).concat([{ titulo: inTitulo.value.trim(), url }]);
+    salvarProjeto(pr);
+    renderProjetoCabecalho(true);
+  };
+  add.onclick = adicionarLink;
+  inUrl.addEventListener('keydown', e => { if(e.key === 'Enter'){ e.preventDefault(); adicionarLink(); } });
+  [inTitulo, inUrl, add].forEach(x => novo.appendChild(x));
+  el.appendChild(novo);
+
+  const rotuloTarefas = document.createElement('div');
+  rotuloTarefas.className = 'projeto-rotulo';
+  rotuloTarefas.textContent = 'Tarefas do projeto';
+  el.appendChild(rotuloTarefas);
+}
+
+// o que mostrar em cada aba (e refazer o que ficou desatualizado)
+function atualizarTelas(){
+  const noProjeto = !!projetoAtivo();
+  document.querySelectorAll('.tela-btn').forEach(b => b.classList.toggle('active', b.dataset.tela === telaAtual));
+  const listaVisivel = telaAtual === 'lista' || noProjeto;
+  document.getElementById('listaScreen').classList.toggle('hidden', !listaVisivel);
+  document.getElementById('projetosScreen').classList.toggle('hidden', !(telaAtual === 'projetos' && !noProjeto));
+  document.getElementById('gradeScreen').classList.toggle('hidden', telaAtual !== 'grade');
+  document.getElementById('calendarioScreen').classList.toggle('hidden', telaAtual !== 'calendario');
+  renderProjetoCabecalho(true);
+  renderProjetos();
+  if(telaAtual === 'grade') renderGrade();
+  if(telaAtual === 'calendario'){ renderCalendario(); buscarPrevisao(); }
+  if(listaVisivel) render();
+}
+// chegou mudança de projetos (de outro aparelho ou nossa): refaz só o que depende deles
+function aoMudarProjetos(){
+  if(projetoAbertoId && !projetoPorId(projetoAbertoId)) projetoAbertoId = null;
+  const noProjeto = !!projetoAtivo();
+  const listaVisivel = telaAtual === 'lista' || noProjeto;
+  document.getElementById('listaScreen').classList.toggle('hidden', !listaVisivel);
+  document.getElementById('projetosScreen').classList.toggle('hidden', !(telaAtual === 'projetos' && !noProjeto));
+  renderProjetoCabecalho(false);
+  renderProjetos();
+  if(listaVisivel) render();
+}
+function comecarAEscutarProjetos(){
+  pararDeEscutarProjetos();
+  projetosCarregados = false;
+  unsubscribeProjetos = onSnapshot(projetosColRef(), (snap) => {
+    projetos = snap.docs.map(d => ({ ...d.data(), id: d.id })).sort((a, b) => (a.criadoEm || 0) - (b.criadoEm || 0));
+    projetosCarregados = true;
+    aoMudarProjetos();
+  }, (err) => {
+    // sem acesso à coleção (regras do Firestore): as tarefas não ficam escondidas por engano
+    console.error('Erro ao escutar projetos', err);
+    projetos = [];
+    projetosCarregados = true;
+    document.getElementById('syncStatus').textContent = 'projetos indisponíveis (veja o servidor)';
+    aoMudarProjetos();
+  });
+}
+function pararDeEscutarProjetos(){
+  if(unsubscribeProjetos){ unsubscribeProjetos(); unsubscribeProjetos = null; }
+  projetos = [];
+  projetosCarregados = false;
+  projetoAbertoId = null;
+}
+
+function distinctCategories(){
+  const set = new Set(tarefasDoEscopo().map(t => t.category || 'Geral'));
+  return Array.from(set).sort((a,b) => a.localeCompare(b, 'pt-BR'));
+}
+
+// A categoria que vale de verdade agora. Se a salva não existe (as tarefas ainda estão
+// carregando, ou a última tarefa dela foi apagada), mostra "Todas" — SEM apagar a escolha
+// salva, que volta a valer quando a categoria aparecer de novo.
+function categoriaEfetiva(){
+  return (selectedCategory === 'all' || distinctCategories().includes(selectedCategory))
+    ? selectedCategory : 'all';
+}
+
+function renderCatBar(){
+  const bar = document.getElementById('catBar');
+  const cats = distinctCategories();
+  const categoriaAtual = categoriaEfetiva();
+  bar.innerHTML = '';
+
+  const allChip = document.createElement('button');
+  allChip.className = 'cat-chip' + (categoriaAtual === 'all' ? ' active' : '');
+  allChip.textContent = 'Todas';
+  allChip.onclick = () => { selectedCategory = 'all'; guardarPreferencia(PREFS_LISTA.categoria, 'all'); render(); };
+  bar.appendChild(allChip);
+
+  cats.forEach(cat => {
+    const chip = document.createElement('button');
+    chip.className = 'cat-chip' + (categoriaAtual === cat ? ' active' : '');
+    chip.textContent = cat;
+    chip.onclick = () => { selectedCategory = cat; guardarPreferencia(PREFS_LISTA.categoria, cat); render(); };
+    bar.appendChild(chip);
+  });
+
+  const datalist = document.getElementById('categoryOptions');
+  datalist.innerHTML = cats.map(c => '<option value="' + c.replace(/"/g,'') + '">').join('');
+}
+
+function pad(n){ return String(n).padStart(2,'0'); }
+function dailyKey(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+
+function weeklyKey(d){
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - dayNum + 3);
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(),0,4));
+  const fDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - fDayNum + 3);
+  const week = 1 + Math.round((date - firstThursday) / (7*86400000));
+  return date.getUTCFullYear()+'-W'+pad(week);
+}
+
+function monthlyKey(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1); }
+
+function currentKey(freq){
+  const d = new Date();
+  if(freq === 'daily') return dailyKey(d);
+  if(freq === 'weekly') return weeklyKey(d);
+  if(freq === 'monthly') return monthlyKey(d);
+  return dailyKey(d);
+}
+
+function isDone(task){
+  if(task.subtasks && task.subtasks.length > 0){
+    return task.subtasks.every(s => s.done);
+  }
+  return task.doneKey === currentKey(task.freq);
+}
+
+function cleanupOnceTasks(){
+  const today = dailyKey(new Date());
+  const idsParaApagar = [];
+  tasks = tasks.filter(t => {
+    const expirou = t.freq === 'once' && t.doneKey && t.doneKey !== today;
+    if(expirou) idsParaApagar.push(t.id);
+    return !expirou;
+  });
+  return idsParaApagar;
+}
+
+// Dado um dailyKey ("2026-09-14"), devolve o dia da semana dele (0=domingo).
+// Usado pra saber se uma tarefa diária com dias customizados (ex: academia,
+// só de segunda a sábado) realmente "valia" naquele dia específico.
+function weekdayFromDailyKey(key){
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, m - 1, d).getDay();
+}
+
+// Uma tarefa diária só é "esperada" num dia se esse dia estiver na lista de
+// dias ativos dela. task.diasAtivos === null/undefined significa "todo dia"
+// (comportamento original, continua valendo pras tarefas já existentes).
+function diaEhAtivoParaTarefa(task, diaDaSemana){
+  if(task.freq !== 'daily' || !task.diasAtivos) return true;
+  return task.diasAtivos.includes(diaDaSemana);
+}
+
+// Marca como "atrasada" (missed) uma tarefa recorrente que virou a
+// página do período (dia/semana/mês) sem ter sido concluída.
+// IMPORTANTE: isso precisa rodar ANTES do resetExpiredPipelines(), porque
+// aquela função zera o doneKey/subtasks do novo ciclo — e é justamente o
+// doneKey do ciclo que ACABOU que usamos aqui pra saber se deu tempo ou não.
+function checkMissedTasks(){
+  const tarefasAlteradas = [];
+  tasks.forEach(task => {
+    if(task.freq === 'once') return; // tarefa única não tem "período" pra atrasar
+
+    const key = currentKey(task.freq);
+
+    if(task.lastEvaluatedKey === undefined){
+      // primeira vez que vemos essa tarefa: só começa a contar a partir de agora,
+      // pra não acusar atraso de um período que nem existia quando o app rodou essa checagem pela 1ª vez
+      task.lastEvaluatedKey = key;
+      tarefasAlteradas.push(task);
+      return;
+    }
+
+    if(task.lastEvaluatedKey !== key){
+      // o período anterior (task.lastEvaluatedKey) já terminou — mas só conta
+      // como "perdido" se aquele dia era mesmo um dia em que a tarefa valia
+      // (ex: não acusa academia de domingo, se domingo não está nos dias ativos)
+      const diaAnteriorEraAtivo = task.freq !== 'daily'
+        || diaEhAtivoParaTarefa(task, weekdayFromDailyKey(task.lastEvaluatedKey));
+
+      if(diaAnteriorEraAtivo){
+        const foiCumpridaNoPeriodoAnterior = task.doneKey === task.lastEvaluatedKey;
+        if(!foiCumpridaNoPeriodoAnterior){
+          task.missed = true;
+        }
+      }
+      task.lastEvaluatedKey = key;
+      tarefasAlteradas.push(task);
+    }
+  });
+  return tarefasAlteradas;
+}
+
+// Tarefas recorrentes com mini-passos OU com meta: quando o período muda
+// (ex: virou o mês), tanto os passos quanto o progresso da meta precisam
+// reiniciar do zero, senão ficariam "colados" pra sempre no ciclo antigo.
+function resetExpiredPipelines(){
+  const tarefasAlteradas = [];
+  tasks.forEach(task => {
+    const temAlgoPraResetar = (task.subtasks && task.subtasks.length > 0) || task.meta;
+    if(temAlgoPraResetar && task.freq !== 'once'){
+      const key = currentKey(task.freq);
+      if(task.cycleKey && task.cycleKey !== key){
+        if(task.subtasks) task.subtasks.forEach(s => { s.done = false; });
+        if(task.meta) task.meta.atual = 0;
+        task.doneKey = null;
+        task.cycleKey = key;
+        tarefasAlteradas.push(task);
+      }
+    }
+  });
+  return tarefasAlteradas;
+}
+
+// Uma tarefa com meta só pode ser concluída depois que "atual" bate "alvo".
+// Tarefas sem meta nenhuma sempre passam nessa checagem.
+function metaAtingida(task){
+  return !task.meta || task.meta.atual >= task.meta.alvo;
+}
+
+// Bloqueio manual: o usuário esconde uma tarefa que só vai poder fazer mais tarde,
+// sem precisar de meta. Fica guardado na própria tarefa (task.bloqueada).
+function bloqueadaManual(task){
+  return task.bloqueada === true;
+}
+// Travada por qualquer motivo: bloqueio manual OU meta ainda não batida.
+function tarefaTravada(task){
+  return bloqueadaManual(task) || !metaAtingida(task);
+}
+function alternarBloqueio(taskId){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  task.bloqueada = !bloqueadaManual(task);
+  render();
+  salvarTarefa(task);
+}
+
+// Edição rápida do valor atual da meta, direto no cadeado da tarefa (🔒 0/8.000).
+// O estado fica aqui (e não só no campo) para o que você digitou sobreviver se a lista
+// for redesenhada no meio da edição (ex.: chegou uma mudança de outro aparelho).
+let metaEditandoId = null;
+let metaEditandoRascunho = '';
+function iniciarEdicaoMetaRapida(task){
+  metaEditandoId = task.id;
+  metaEditandoRascunho = String(task.meta.atual);
+  render();
+}
+function terminarEdicaoMetaRapida(task, salvar, valor){
+  if(metaEditandoId !== task.id) return; // já terminou (Enter seguido do blur, por exemplo)
+  metaEditandoId = null;
+  if(salvar && valor.trim() !== '' && !isNaN(Number(valor)) && Number(valor) !== task.meta.atual){
+    atualizarMeta(task.id, valor);      // redesenha e salva
+  }else{
+    render();                           // vazio, inválido ou igual: só fecha
+  }
+}
+// O "check" de uma tarefa travada: 🔒 progresso da meta (tocável) ou 🔒 bloqueada
+function construirCheckBloqueado(task){
+  const check = document.createElement('div');
+  check.className = 'check meta-locked';
+  if(!(task.meta && !metaAtingida(task))){
+    check.textContent = '🔒 bloqueada';
+    return check;
+  }
+  const alvoTexto = '/' + task.meta.alvo.toLocaleString('pt-BR');
+  if(metaEditandoId === task.id){
+    check.classList.add('editando');
+    check.onclick = (e) => e.stopPropagation();
+    check.appendChild(document.createTextNode('🔒 '));
+    const campo = document.createElement('input');
+    campo.type = 'number';
+    campo.min = '0';
+    campo.step = 'any';
+    campo.inputMode = 'decimal';
+    campo.className = 'meta-rapida-input';
+    campo.value = metaEditandoRascunho;
+    campo.setAttribute('aria-label', 'Valor atual da meta');
+    campo.addEventListener('input', () => { metaEditandoRascunho = campo.value; });
+    campo.addEventListener('keydown', e => {
+      if(e.key === 'Enter'){ e.preventDefault(); terminarEdicaoMetaRapida(task, true, campo.value); }
+      else if(e.key === 'Escape'){ e.preventDefault(); terminarEdicaoMetaRapida(task, false, ''); }
+    });
+    campo.addEventListener('blur', () => terminarEdicaoMetaRapida(task, true, campo.value));
+    check.appendChild(campo);
+    check.appendChild(document.createTextNode(alvoTexto));
+    // depois que a lista é desenhada: foca e seleciona o número para já digitar por cima
+    setTimeout(() => { if(campo.isConnected && document.activeElement !== campo){ campo.focus(); campo.select(); } }, 0);
+  }else{
+    check.classList.add('editavel');
+    check.textContent = '🔒 ' + task.meta.atual.toLocaleString('pt-BR') + alvoTexto;
+    check.title = 'Toque para alterar o valor atual';
+    check.onclick = (e) => { e.stopPropagation(); iniciarEdicaoMetaRapida(task); };
+  }
+  return check;
+}
+
+function atualizarMeta(taskId, novoValor){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task || !task.meta) return;
+  const valor = Number(novoValor);
+  task.meta.atual = isNaN(valor) ? 0 : Math.max(0, valor);
+  task.cycleKey = currentKey(task.freq);
+  render();
+  salvarTarefa(task);
+}
+
+function adicionarMeta(taskId, valorAlvo){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const alvo = Number(valorAlvo);
+  if(!(alvo > 0)) return; // precisa de um número válido maior que zero
+  task.meta = { alvo, atual: 0 };
+  task.cycleKey = currentKey(task.freq); // já entra sincronizada com o ciclo atual
+  render();
+  salvarTarefa(task);
+}
+
+function removerMeta(taskId){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const ok = window.confirm('Remover a meta desta tarefa? Ela deixa de ficar travada e pode ser concluída livremente.');
+  if(!ok) return;
+  task.meta = null;
+  render();
+  salvarTarefa(task);
+}
+
+// Painel pra ADICIONAR uma meta numa tarefa que ainda não tem uma.
+// Uma vez adicionada, o lugar dele é tomado pelo buildMetaPanel normal.
+function buildAddMetaPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'meta:';
+  row.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '0';
+  input.step = '0.01';
+  input.placeholder = 'valor alvo (ex: 8000)';
+  row.appendChild(input);
+
+  const addBtn = document.createElement('button');
+  addBtn.textContent = 'adicionar meta';
+  addBtn.onclick = () => adicionarMeta(task.id, input.value);
+  row.appendChild(addBtn);
+
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter') adicionarMeta(task.id, input.value);
+  });
+
+  panel.appendChild(row);
+  return panel;
+}
+
+const MONTHS = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+const WEEKDAYS = ['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+
+function renderTodayLabel(){
+  const d = new Date();
+  document.getElementById('todayLabel').textContent =
+    WEEKDAYS[d.getDay()] + ', ' + d.getDate() + ' de ' + MONTHS[d.getMonth()] + ' de ' + d.getFullYear();
+}
+
+function periodLabelFor(freq){
+  const d = new Date();
+  if(freq === 'daily') return 'hoje · ' + d.getDate() + ' ' + MONTHS[d.getMonth()].slice(0,3);
+  if(freq === 'weekly') return 'esta semana';
+  if(freq === 'monthly') return MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+  return 'sem prazo';
+}
+
+const GROUPS = [
+  {freq:'daily', label:'Diárias'},
+  {freq:'weekly', label:'Semanais'},
+  {freq:'monthly', label:'Mensais'},
+  {freq:'once', label:'Únicas'}
+];
+
+let viewMode = VIEW_MODES_VALIDOS.includes(lerPreferencia(PREFS_LISTA.view)) ? lerPreferencia(PREFS_LISTA.view) : 'freq'; // 'freq' (padrão, por Diária/Semanal/...), 'pasta' ou por data
+let showBlocked = lerPreferencia(PREFS_LISTA.bloqueadas) === '1'; // tarefas travadas por meta ficam escondidas por padrão
+let blocos = []; // blocos da Grade Horária, um por dia da semana
+let diaGradeSelecionado = new Date().getDay(); // qual dia da semana está sendo visualizado na Grade
+// Eventos do Calendário na Grade (só para ver): ligado por padrão; a escolha fica só neste aparelho
+let mostrarEventosNaGrade = true;
+try{ mostrarEventosNaGrade = localStorage.getItem('rotina.grade.mostrarEventos') !== '0'; }catch(e){ /* sem localStorage: fica ligado */ }
+let dataDaGradeRenderizada = null; // 'AAAA-MM-DD' de "hoje" quando a Grade foi desenhada (para a janela andar à meia-noite)
+let assinaturaEventosGrade = '';   // resumo dos eventos que a Grade mostra (só redesenha se algo visível mudou)
+let blocoEditandoId = null; // qual bloco está com o formulário de edição aberto
+let eventos = []; // eventos do Calendário (usuarios/{uid}/eventos), carregados do Firestore
+let mesCalendarioAtual = new Date(); // qual mês está sendo exibido na tela Calendário
+let eventoFormAbertoParaDia = null; // 'AAAA-MM-DD' do dia clicado pra criar um evento novo, ou null
+let eventoEditandoId = null; // id do evento com o formulário de edição aberto, ou null
+
+function getVisibleTasks(){
+  const hoje = new Date().getDay();
+  const categoriaAtual = categoriaEfetiva();
+  return tarefasDoEscopo()
+    .filter(t => categoriaAtual === 'all' || (t.category || 'Geral') === categoriaAtual)
+    .filter(t => currentMode === 'ambos' || !t.regime || t.regime === currentMode)
+    .filter(t => showBlocked || !tarefaTravada(t))
+    .filter(t => diaEhAtivoParaTarefa(t, hoje));
+}
+
+// Monta a lista de "grupos" a exibir, já com as tarefas de cada um dentro.
+// Centralizar essa lógica aqui (em vez de espalhar em render() e moveTask())
+// garante que os dois enxerguem exatamente os mesmos grupos, na mesma ordem.
+// O id da tarefa é 't' + Date.now() (13 dígitos) + sufixo aleatório — então dá
+// pra extrair a data de criação dali, sem precisar guardar um campo à parte.
+function dataDeCriacao(task){
+  const timestamp = parseInt(String(task.id).slice(1, 14), 10);
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function getGroupsToRender(){
+  const visivel = getVisibleTasks();
+
+  // tarefas fixadas (📌) sempre no topo do grupo delas — o sort é estável,
+  // então dentro de cada bloco (fixadas / não fixadas) a ordem de sempre
+  // (campo "ordem") continua sendo respeitada
+  function comFixadasNoTopo(lista){
+    return lista.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+  }
+
+  if(viewMode === 'pasta'){
+    const nomesDePasta = Array.from(new Set(visivel.map(t => t.pasta || null)));
+    nomesDePasta.sort((a, b) => {
+      if(a === null) return 1;   // "Sem pasta" sempre por último
+      if(b === null) return -1;
+      return a.localeCompare(b, 'pt-BR');
+    });
+    return nomesDePasta.map(nome => ({
+      type: 'pasta',
+      pastaName: nome, // null pra "Sem pasta"
+      label: nome || 'Sem pasta',
+      tasksInGroup: comFixadasNoTopo(visivel.filter(t => (t.pasta || null) === nome))
+    }));
+  }
+
+  if(viewMode === 'data-antigas' || viewMode === 'data-recentes'){
+    const multiplicador = viewMode === 'data-antigas' ? 1 : -1;
+    const ordenadas = visivel
+      .slice()
+      .sort((a, b) => multiplicador * (dataDeCriacao(a) - dataDeCriacao(b)));
+    return [{
+      type: 'data',
+      label: viewMode === 'data-antigas' ? 'Mais antigas primeiro' : 'Mais recentes primeiro',
+      // aqui a ordem já É a data de inclusão — colocar fixadas no topo
+      // bagunçaria justamente o que esse modo existe pra mostrar
+      tasksInGroup: ordenadas
+    }];
+  }
+
+  return GROUPS.map(g => ({
+    type: 'freq',
+    freq: g.freq,
+    label: g.label,
+    tasksInGroup: comFixadasNoTopo(visivel.filter(t => t.freq === g.freq))
+  }));
+}
+
+function distinctPastas(){
+  const set = new Set(tarefasDoEscopo().map(t => t.pasta).filter(Boolean));
+  return Array.from(set).sort((a,b) => a.localeCompare(b, 'pt-BR'));
+}
+
+function renomearPasta(nomeAntigo){
+  const novoNome = window.prompt('Novo nome da pasta:', nomeAntigo);
+  if(novoNome === null) return; // cancelou
+  const nome = novoNome.trim();
+  if(!nome || nome === nomeAntigo) return;
+  const afetadas = tarefasDoEscopo().filter(t => (t.pasta || null) === nomeAntigo);
+  afetadas.forEach(t => { t.pasta = nome; });
+  render();
+  salvarVariasTarefas(afetadas, []);
+}
+
+function desfazerPasta(nomePasta){
+  const ok = window.confirm('Isso só solta as tarefas da pasta "' + nomePasta + '" — nenhuma tarefa é apagada. Continuar?');
+  if(!ok) return;
+  const afetadas = tarefasDoEscopo().filter(t => (t.pasta || null) === nomePasta);
+  afetadas.forEach(t => { t.pasta = null; });
+  render();
+  salvarVariasTarefas(afetadas, []);
+}
+
+// ---------- Grade Horária (blocos por dia da semana) ----------
+// Diferente da Lista de tarefas, isso é uma grade FIXA (tipo uma grade
+// escolar): cada bloco pertence a um dia da semana específico (0=domingo
+// ... 6=sábado) e tem hora de início/fim. Um bloco pode estar "vinculado"
+// a uma tarefa de verdade do checklist (mostra checkbox, clica marca) ou
+// ser só um rótulo informativo (ex: "Transporte", "Descanso") sem vínculo
+// nenhum com o checklist.
+
+// ---------- Janela de 7 dias da Grade ----------
+// A Grade mostra 7 dias que andam com o calendário: 3 antes de hoje, hoje no meio e 3
+// depois. Cada dia da semana aparece exatamente UMA vez nessa janela, então "quarta"
+// sempre aponta para uma data só. Os blocos (que são por dia da semana) funcionam do
+// mesmo jeito de sempre; a data serve para mostrar os eventos do Calendário.
+const GRADE_DIAS_VIZINHOS = 3;
+const GRADE_LETRAS_DIA = ['D','S','T','Q','Q','S','S'];
+
+// A data que o dia da semana (0-6) representa na janela de hoje.
+function dataDoDiaDaGrade(diaSemana, base){
+  const b = base || new Date();
+  const hoje = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  const deslocamento = ((diaSemana - hoje.getDay() + GRADE_DIAS_VIZINHOS + 7) % 7) - GRADE_DIAS_VIZINHOS;
+  return new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + deslocamento);
+}
+
+function renderDiaSeletor(){
+  const seletor = document.getElementById('diaSeletor');
+  seletor.innerHTML = '';
+  const hoje = new Date();
+  for(let desl = -GRADE_DIAS_VIZINHOS; desl <= GRADE_DIAS_VIZINHOS; desl++){
+    const data = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + desl);
+    const dia = data.getDay();
+    const dataTxt = pad(data.getDate()) + '/' + pad(data.getMonth() + 1);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'day-btn' + (dia === diaGradeSelecionado ? ' active' : '') + (desl === 0 ? ' hoje' : '');
+    b.dataset.day = String(dia);
+    b.title = WEEKDAYS[dia] + ', ' + dataTxt + (desl === 0 ? ' (hoje)' : '');
+    const letra = document.createElement('span');
+    letra.className = 'day-btn-letra';
+    letra.textContent = GRADE_LETRAS_DIA[dia];
+    const dt = document.createElement('span');
+    dt.className = 'day-btn-data';
+    dt.textContent = dataTxt;
+    b.appendChild(letra);
+    b.appendChild(dt);
+    seletor.appendChild(b);
+  }
+}
+
+// "· dia 2/3" para eventos de vários dias (os que se repetem não têm isso)
+function textoDiaDoEvento(ev, data){
+  if(ev.recorrencia === 'anual' || ev.recorrencia === 'mensal') return '';
+  const fimISO = ev.dataFim || ev.dataInicio;
+  if(!ev.dataInicio || fimISO === ev.dataInicio) return '';
+  const ini = new Date(ev.dataInicio + 'T00:00:00');
+  const fim = new Date(fimISO + 'T00:00:00');
+  const total = Math.round((fim - ini) / 86400000) + 1;
+  const n = Math.round((data - ini) / 86400000) + 1;
+  return ' · dia ' + n + '/' + total;
+}
+
+// Abre o evento no Calendário, já em modo de edição, no mês da data que foi tocada
+function abrirEventoNoCalendario(ev, data){
+  mesCalendarioAtual = new Date(data.getFullYear(), data.getMonth(), 1);
+  eventoFormAbertoParaDia = null;
+  eventoEditandoId = ev.id;
+  document.querySelector('.tela-btn[data-tela="calendario"]').click(); // troca de tela como as abas fazem
+  const area = document.getElementById('calendarioFormArea');
+  if(area && area.scrollIntoView) area.scrollIntoView({ block: 'nearest' });
+}
+
+// Linha de um evento do Calendário na Grade: só para ver (a edição fica no Calendário)
+function buildEventoRowGrade(ev, data){
+  const cor = corDoEvento(ev);
+  const wrap = document.createElement('div');
+  wrap.className = 'bloco-wrap';
+
+  const row = document.createElement('div');
+  row.className = 'compromisso compromisso-evento';
+  row.style.borderLeftColor = cor;
+  row.style.background = hexParaRgba(cor, 0.10);
+  row.style.cursor = 'pointer';
+  row.title = 'Abrir no Calendário';
+  row.onclick = () => abrirEventoNoCalendario(ev, data);
+
+  const horaEl = document.createElement('span');
+  horaEl.className = 'bloco-hora';
+  horaEl.textContent = ev.horario ? ev.horario : 'dia todo';
+  row.appendChild(horaEl);
+
+  const texto = document.createElement('span');
+  texto.className = 'compromisso-texto';
+  texto.textContent = ev.titulo;
+  row.appendChild(texto);
+
+  const tag = document.createElement('span');
+  tag.className = 'compromisso-tag';
+  tag.textContent = 'evento' + textoDiaDoEvento(ev, data);
+  row.appendChild(tag);
+
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function renderGrade(){
+  renderDiaSeletor();
+
+  const hoje = new Date();
+  const hojeMeiaNoite = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  dataDaGradeRenderizada = dailyKey(hojeMeiaNoite);
+  const dataSel = dataDoDiaDaGrade(diaGradeSelecionado, hoje);
+  const desl = Math.round((dataSel - hojeMeiaNoite) / 86400000);
+
+  const nomeDia = WEEKDAYS[diaGradeSelecionado];
+  const relativo = desl === 0 ? ' · hoje' : desl === -1 ? ' · ontem' : desl === 1 ? ' · amanhã' : '';
+  document.getElementById('gradeHeaderTexto').textContent =
+    nomeDia.charAt(0).toUpperCase() + nomeDia.slice(1) + ' · ' + pad(dataSel.getDate()) + '/' + pad(dataSel.getMonth() + 1) + relativo;
+
+  const btnEventos = document.getElementById('btnEventosGrade');
+  btnEventos.textContent = mostrarEventosNaGrade ? 'Eventos: mostrando' : 'Eventos: escondidos';
+  btnEventos.classList.toggle('ligado', mostrarEventosNaGrade);
+  btnEventos.setAttribute('aria-pressed', String(mostrarEventosNaGrade));
+  btnEventos.title = 'Mostrar ou esconder os eventos do Calendário nesta tela (vale só neste aparelho)';
+
+  const blocosDoDia = blocos.filter(b => b.dia === diaGradeSelecionado);
+
+  // eventos do Calendário que caem nesta data (inclui vários dias e os que se repetem)
+  const eventosDoDia = mostrarEventosNaGrade
+    ? eventosNoDia(dataSel.getFullYear(), dataSel.getMonth(), dataSel.getDate())
+    : [];
+  const eventosDiaTodo = eventosDoDia
+    .filter(ev => !ev.horario)
+    .sort((a, b) => (a.titulo || '').localeCompare(b.titulo || ''));
+
+  // blocos e eventos com horário ficam juntos, na ordem do horário (no empate, o bloco vem antes)
+  const itens = [
+    ...blocosDoDia.map(b => ({ tipo: 'bloco', hora: b.inicio, fim: b.fim || '', bloco: b })),
+    ...eventosDoDia.filter(ev => ev.horario).map(ev => ({ tipo: 'evento', hora: ev.horario, fim: '', ev }))
+  ].sort((a, b) =>
+    a.hora.localeCompare(b.hora) ||
+    (a.tipo === b.tipo ? 0 : (a.tipo === 'bloco' ? -1 : 1)) ||
+    a.fim.localeCompare(b.fim));
+
+  const container = document.getElementById('gradeSlots');
+  container.innerHTML = '';
+
+  if(itens.length === 0 && eventosDiaTodo.length === 0){
+    const msg = document.createElement('div');
+    msg.className = 'sem-horario-msg';
+    msg.textContent = 'Nenhum bloco cadastrado pra esse dia ainda. Use o formulário abaixo pra adicionar.';
+    container.appendChild(msg);
+  } else {
+    eventosDiaTodo.forEach(ev => container.appendChild(buildEventoRowGrade(ev, dataSel)));
+    itens.forEach(item => {
+      container.appendChild(item.tipo === 'bloco'
+        ? buildBlocoRow(item.bloco)
+        : buildEventoRowGrade(item.ev, dataSel));
+    });
+  }
+
+  container.appendChild(buildAddBlocoForm());
+}
+
+function buildBlocoRow(bloco){
+  const tarefaVinculada = bloco.taskId ? tasks.find(t => t.id === bloco.taskId) : null;
+  const done = tarefaVinculada ? isDone(tarefaVinculada) : false;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'bloco-wrap';
+
+  const row = document.createElement('div');
+  row.className = 'compromisso' + (done ? ' done' : '');
+  // risco da esquerda na cor escolhida (sem cor salva = o verde de sempre, do CSS)
+  if(bloco.cor && /^#[0-9a-fA-F]{6}$/.test(bloco.cor)) row.style.borderLeftColor = bloco.cor;
+
+  if(tarefaVinculada){
+    const temPassos = tarefaVinculada.subtasks && tarefaVinculada.subtasks.length > 0;
+    const bloqueada = tarefaVinculada && tarefaTravada(tarefaVinculada);
+    if(!temPassos && !bloqueada){
+      row.onclick = () => toggleTask(tarefaVinculada.id);
+      row.style.cursor = 'pointer';
+    }
+  }
+
+  const horaEl = document.createElement('span');
+  horaEl.className = 'bloco-hora';
+  horaEl.textContent = bloco.inicio + '–' + bloco.fim;
+  row.appendChild(horaEl);
+
+  const texto = document.createElement('span');
+  texto.className = 'compromisso-texto';
+  texto.textContent = bloco.texto;
+  row.appendChild(texto);
+
+  if(tarefaVinculada){
+    const tag = document.createElement('span');
+    tag.className = 'compromisso-tag';
+    tag.textContent = '✓ vinculado';
+    row.appendChild(tag);
+  }
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'edit-btn';
+  editBtn.textContent = 'editar';
+  editBtn.onclick = (e) => {
+    e.stopPropagation();
+    blocoEditandoId = (blocoEditandoId === bloco.id) ? null : bloco.id;
+    renderGrade();
+  };
+  row.appendChild(editBtn);
+
+  wrap.appendChild(row);
+
+  if(blocoEditandoId === bloco.id){
+    wrap.appendChild(buildEditarBlocoForm(bloco));
+  }
+
+  return wrap;
+}
+
+function buildEditarBlocoForm(bloco){
+  const form = document.createElement('div');
+  form.className = 'bloco-form';
+
+  const inicioInput = document.createElement('input');
+  inicioInput.type = 'time';
+  inicioInput.value = bloco.inicio;
+
+  const fimInput = document.createElement('input');
+  fimInput.type = 'time';
+  fimInput.value = bloco.fim;
+
+  const textoInput = document.createElement('input');
+  textoInput.type = 'text';
+  textoInput.value = bloco.texto;
+  textoInput.maxLength = 80;
+  textoInput.placeholder = 'descrição do bloco';
+
+  const vinculoSelect = criarSeletorDeTarefa(bloco.taskId);
+  const seletorAviso = criarSeletorDeAviso(avisoDoBloco(bloco));
+  const seletorCor = criarSeletorDeCorBloco(corDoBloco(bloco));
+
+  const salvarBtn = document.createElement('button');
+  salvarBtn.textContent = 'salvar';
+  salvarBtn.onclick = () => {
+    const novoInicio = inicioInput.value || bloco.inicio;
+    const novoAviso = seletorAviso.obterAviso();
+    const blocoAtualizado = {
+      ...bloco,
+      // se o campo de horário for esvaziado, mantém o horário antigo (um valor
+      // vazio quebraria a ordenação por horário)
+      inicio: novoInicio,
+      fim: fimInput.value || bloco.fim,
+      texto: textoInput.value.trim() || bloco.texto,
+      taskId: vinculoSelect.value || null,
+      avisoAntes: novoAviso,
+      cor: seletorCor.obterCor()
+    };
+    // Mudou o horário ou o tempo de aviso? Então o aviso de hoje (se já tinha
+    // saído) vale de novo: apaga a marca "ultimaNotificacao" que o Worker grava
+    // no bloco. Sem isso, editar um bloco já avisado hoje não avisava de novo.
+    if(novoInicio !== bloco.inicio || novoAviso !== avisoDoBloco(bloco)){
+      delete blocoAtualizado.ultimaNotificacao;
+    }
+    // atualiza a lista local NA HORA e redesenha — igual o "adicionar bloco" já
+    // faz. Antes só mandava pro Firestore e esperava a resposta dele voltar pra
+    // tela se atualizar, então o bloco ficava no lugar antigo até lá.
+    blocos = blocos.map(b => b.id === bloco.id ? blocoAtualizado : b);
+    blocoEditandoId = null;
+    renderGrade();
+    salvarBloco(blocoAtualizado);
+  };
+
+  const removerBtn = document.createElement('button');
+  removerBtn.textContent = 'remover bloco';
+  removerBtn.onclick = () => {
+    apagarBlocoDoc(bloco.id);
+    blocos = blocos.filter(b => b.id !== bloco.id);
+    blocoEditandoId = null;
+    renderGrade();
+  };
+
+  form.appendChild(inicioInput);
+  form.appendChild(fimInput);
+  form.appendChild(textoInput);
+  form.appendChild(vinculoSelect);
+  form.appendChild(seletorAviso);
+  form.appendChild(seletorCor);
+  form.appendChild(salvarBtn);
+  form.appendChild(removerBtn);
+  return form;
+}
+
+// ---------- Cor dos blocos da grade ----------
+// Mesma paleta dos eventos do calendário. O verde é o padrão: é a cor do risco
+// que os blocos já tinham antes do seletor, então blocos antigos (sem "cor"
+// salva) continuam iguais.
+const COR_BLOCO_PADRAO = '#1D9E75';
+
+function corDoBloco(bloco){
+  return (bloco && /^#[0-9a-fA-F]{6}$/.test(bloco.cor || '')) ? bloco.cor : COR_BLOCO_PADRAO;
+}
+
+// Linha "Cor:" com as bolinhas da paleta. Devolve o elemento; a cor escolhida
+// fica disponível em elemento.obterCor() (usado ao clicar em salvar/adicionar).
+function criarSeletorDeCorBloco(corInicial){
+  let corAtual = corInicial;
+  const wrap = document.createElement('div');
+  wrap.className = 'cor-seletor';
+  wrap.appendChild(document.createTextNode('Cor:'));
+  const bolinhas = [];
+  CORES_EVENTO.forEach(({ hex, nome }) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cor-opcao';
+    b.style.background = hex;
+    b.title = nome;
+    b.setAttribute('aria-label', nome);
+    b.classList.toggle('selecionada', hex.toLowerCase() === corAtual.toLowerCase());
+    b.onclick = () => {
+      corAtual = hex;
+      bolinhas.forEach(x => x.classList.toggle('selecionada', x === b));
+    };
+    bolinhas.push(b);
+    wrap.appendChild(b);
+  });
+  wrap.obterCor = () => corAtual;
+  return wrap;
+}
+
+// ---------- Aviso antes do bloco ----------
+// Quanto tempo ANTES do início o Rotina te avisa por notificação. Fica salvo no
+// bloco, no campo "avisoAntes" (em minutos): 0 = no horário, -1 = sem aviso.
+// Blocos antigos, sem esse campo, avisam 10 min antes (como já era).
+// O limite de 12 h existe porque a Grade se repete toda semana; avisos de dias
+// antes (aniversário, festa) combinam mais com o Calendário.
+// ATENÇÃO: quem manda a notificação é o Worker do Cloudflare, que tem estes
+// MESMOS dois números (AVISO_PADRAO_MIN e AVISO_MAXIMO_MIN no worker.js).
+// Se mudar aqui, mude lá também.
+const AVISO_PADRAO_MIN = 10;
+const AVISO_MAXIMO_MIN = 720;
+const AVISOS_PRONTOS = [
+  { min: -1, nome: 'sem aviso' },
+  { min: 0, nome: 'avisar no horário' },
+  { min: 5, nome: 'avisar 5 min antes' },
+  { min: 10, nome: 'avisar 10 min antes' },
+  { min: 15, nome: 'avisar 15 min antes' },
+  { min: 30, nome: 'avisar 30 min antes' },
+  { min: 60, nome: 'avisar 1 h antes' },
+  { min: 90, nome: 'avisar 1 h 30 antes' },
+  { min: 120, nome: 'avisar 2 h antes' }
+];
+
+// O aviso efetivo de um bloco (os antigos, sem o campo, caem no padrão).
+function avisoDoBloco(bloco){
+  const v = bloco && bloco.avisoAntes;
+  if(v === -1) return -1;
+  return (Number.isInteger(v) && v >= 0) ? Math.min(v, AVISO_MAXIMO_MIN) : AVISO_PADRAO_MIN;
+}
+
+// Campo "quando avisar": uma lista pronta + a opção "personalizado..." que
+// mostra um número e a unidade (minutos ou horas). O valor escolhido, em
+// minutos, fica em elemento.obterAviso() (usado ao clicar em salvar/adicionar).
+function criarSeletorDeAviso(avisoInicial){
+  const wrap = document.createElement('div');
+  wrap.className = 'aviso-seletor';
+
+  const select = document.createElement('select');
+  select.title = 'quando avisar por notificação';
+  AVISOS_PRONTOS.forEach(({ min, nome }) => {
+    const opt = document.createElement('option');
+    opt.value = String(min);
+    opt.textContent = nome;
+    select.appendChild(opt);
+  });
+  const optPersonalizado = document.createElement('option');
+  optPersonalizado.value = 'custom';
+  optPersonalizado.textContent = 'personalizado...';
+  select.appendChild(optPersonalizado);
+
+  const numero = document.createElement('input');
+  numero.type = 'number';
+  numero.min = '0';
+  numero.step = '1';
+  numero.placeholder = 'tempo';
+  numero.title = 'quanto tempo antes (máximo 12 horas)';
+
+  const unidade = document.createElement('select');
+  [['min', 'minutos'], ['h', 'horas']].forEach(([valor, nome]) => {
+    const opt = document.createElement('option');
+    opt.value = valor;
+    opt.textContent = nome;
+    unidade.appendChild(opt);
+  });
+
+  // valor inicial: uma das opções prontas, ou "personalizado" com o número já preenchido
+  if(AVISOS_PRONTOS.some(a => a.min === avisoInicial)){
+    select.value = String(avisoInicial);
+  }else{
+    select.value = 'custom';
+    if(avisoInicial % 60 === 0){
+      numero.value = String(avisoInicial / 60);
+      unidade.value = 'h';
+    }else{
+      numero.value = String(avisoInicial);
+      unidade.value = 'min';
+    }
+  }
+
+  function minutosPersonalizados(){
+    // campo em branco: usa o padrão (Number('') seria 0 = "avisar no horário")
+    if(numero.value.trim() === '') return AVISO_PADRAO_MIN;
+    const n = Math.floor(Number(numero.value));
+    if(!Number.isFinite(n) || n < 0) return AVISO_PADRAO_MIN;
+    return Math.min(n * (unidade.value === 'h' ? 60 : 1), AVISO_MAXIMO_MIN);
+  }
+
+  function atualizarVisibilidade(){
+    const personalizado = select.value === 'custom';
+    numero.classList.toggle('hidden', !personalizado);
+    unidade.classList.toggle('hidden', !personalizado);
+  }
+
+  // se digitou mais que o máximo (12 h), mostra o valor já ajustado
+  function ajustarAoMaximo(){
+    if(numero.value === '') return;
+    const total = minutosPersonalizados();
+    numero.value = String(unidade.value === 'h' ? total / 60 : total);
+  }
+
+  select.onchange = atualizarVisibilidade;
+  numero.onchange = ajustarAoMaximo;
+  unidade.onchange = ajustarAoMaximo;
+  atualizarVisibilidade();
+
+  wrap.appendChild(select);
+  wrap.appendChild(numero);
+  wrap.appendChild(unidade);
+  wrap.obterAviso = () => (select.value === 'custom' ? minutosPersonalizados() : Number(select.value));
+  return wrap;
+}
+
+// Select reaproveitado tanto pra criar quanto pra editar um bloco —
+// lista todas as tarefas atuais, pra você escolher vincular ou não.
+function criarSeletorDeTarefa(taskIdSelecionado){
+  const select = document.createElement('select');
+  const optionVazia = document.createElement('option');
+  optionVazia.value = '';
+  optionVazia.textContent = 'sem tarefa vinculada';
+  select.appendChild(optionVazia);
+
+  tasks.slice().sort((a, b) => a.text.localeCompare(b.text, 'pt-BR')).forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.text;
+    if(t.id === taskIdSelecionado) opt.selected = true;
+    select.appendChild(opt);
+  });
+  return select;
+}
+
+function buildAddBlocoForm(){
+  const form = document.createElement('div');
+  form.className = 'bloco-form bloco-form-novo';
+
+  const inicioInput = document.createElement('input');
+  inicioInput.type = 'time';
+
+  const fimInput = document.createElement('input');
+  fimInput.type = 'time';
+
+  const textoInput = document.createElement('input');
+  textoInput.type = 'text';
+  textoInput.maxLength = 80;
+  textoInput.placeholder = 'descrição do bloco (ex: Academia, Relatório...)';
+
+  const vinculoSelect = criarSeletorDeTarefa(null);
+  const seletorAviso = criarSeletorDeAviso(AVISO_PADRAO_MIN);
+  const seletorCor = criarSeletorDeCorBloco(COR_BLOCO_PADRAO);
+
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+ adicionar bloco';
+  addBtn.onclick = () => {
+    const texto = textoInput.value.trim();
+    if(!texto || !inicioInput.value || !fimInput.value) return;
+    adicionarBloco({
+      dia: diaGradeSelecionado,
+      inicio: inicioInput.value,
+      fim: fimInput.value,
+      texto: texto,
+      taskId: vinculoSelect.value || null,
+      avisoAntes: seletorAviso.obterAviso(),
+      cor: seletorCor.obterCor()
+    });
+    textoInput.value = '';
+    inicioInput.value = '';
+    fimInput.value = '';
+  };
+
+  form.appendChild(inicioInput);
+  form.appendChild(fimInput);
+  form.appendChild(textoInput);
+  form.appendChild(vinculoSelect);
+  form.appendChild(seletorAviso);
+  form.appendChild(seletorCor);
+  form.appendChild(addBtn);
+  return form;
+}
+
+// ---------- Cores dos eventos ----------
+// Paleta que aparece no seletor do formulário. O primeiro azul é o padrão: é a
+// cor que os eventos já tinham antes do seletor existir, então eventos antigos
+// (sem o campo "cor" salvo) continuam com a mesma aparência.
+const COR_EVENTO_PADRAO = '#1D6FA5';
+const CORES_EVENTO = [
+  { hex: '#1D6FA5', nome: 'Azul' },
+  { hex: '#1D9E75', nome: 'Verde' },
+  { hex: '#BA7517', nome: 'Âmbar' },
+  { hex: '#534AB7', nome: 'Roxo' },
+  { hex: '#B4483C', nome: 'Vermelho' },
+  { hex: '#C2477F', nome: 'Rosa' },
+  { hex: '#1B8A8F', nome: 'Turquesa' },
+  { hex: '#5F5E5A', nome: 'Cinza' }
+];
+
+// Devolve a cor do evento, ou o azul padrão se não tiver (ou se estiver inválida)
+function corDoEvento(ev){
+  return (ev && /^#[0-9a-fA-F]{6}$/.test(ev.cor || '')) ? ev.cor : COR_EVENTO_PADRAO;
+}
+
+// '#1D6FA5' + 0.18 -> 'rgba(29, 111, 165, 0.18)' (fundo clarinho da etiqueta)
+function hexParaRgba(hex, alfa){
+  const n = parseInt(hex.slice(1), 16);
+  return 'rgba(' + ((n >> 16) & 255) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ', ' + alfa + ')';
+}
+
+// Decide se um evento acontece num dia específico do calendário —
+// considerando eventos de data única, de vários dias, e os recorrentes
+// (mensal/anual), sem precisar duplicar o evento pra cada ocorrência.
+function eventoOcorreEm(evento, ano, mes, dia){
+  const dataAlvo = new Date(ano, mes, dia);
+  const inicio = new Date(evento.dataInicio + 'T00:00:00');
+
+  if(evento.recorrencia === 'anual'){
+    return inicio.getMonth() === mes && inicio.getDate() === dia;
+  }
+  if(evento.recorrencia === 'mensal'){
+    return inicio.getDate() === dia;
+  }
+  const fim = new Date((evento.dataFim || evento.dataInicio) + 'T00:00:00');
+  return dataAlvo >= inicio && dataAlvo <= fim;
+}
+
+function eventosNoDia(ano, mes, dia){
+  return eventos.filter(ev => eventoOcorreEm(ev, ano, mes, dia));
+}
+
+// 'AAAA-MM-DD', o mesmo formato que os <input type="date"> usam e que
+// salvamos em evento.dataInicio/dataFim
+function dataISO(ano, mes, dia){
+  return ano + '-' + pad(mes + 1) + '-' + pad(dia);
+}
+
+// Monta os "pedaços" (segmentos) de evento de UMA semana do calendário.
+// Um evento de vários dias vira uma barra única que atravessa as colunas dos
+// dias, e se continuar na semana seguinte ganha um novo pedaço lá (igual ao
+// Google Agenda). Eventos de um dia só (e os recorrentes) viram pedaços de
+// largura 1. 'dias' tem 7 itens: o número do dia do mês, ou null se aquela
+// coluna cai fora do mês exibido.
+// ---------- Feriados nacionais ----------
+// Calculados aqui mesmo (sem internet): os fixos pela data, e os que dependem da Páscoa
+// (Carnaval, Sexta-feira Santa, Corpus Christi) pelo cálculo da Páscoa. Só entram os
+// nacionais; feriado estadual/municipal não. Carnaval e Corpus Christi são "ponto
+// facultativo" (não são feriado por lei), mas aparecem por serem datas de folga comuns.
+// A escolha de mostrar fica só neste aparelho.
+const CHAVE_FERIADOS = 'rotina.calendario.feriados';
+let mostrarFeriados = lerPreferencia(CHAVE_FERIADOS) === '1';
+const COR_FERIADO = '#B4483C';
+
+// Domingo de Páscoa (algoritmo de Meeus/Jones/Butcher)
+function dataDaPascoa(ano){
+  const a = ano % 19, b = Math.floor(ano / 100), c = ano % 100;
+  const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mes = Math.floor((h + l - 7 * m + 114) / 31);       // 3 = março, 4 = abril
+  const dia = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(ano, mes - 1, dia);
+}
+
+// { 'AAAA-MM-DD': 'Nome' } com os feriados nacionais do ano
+function feriadosDoAno(ano){
+  const lista = {};
+  const pascoa = dataDaPascoa(ano);
+  const aPartirDaPascoa = n => {
+    const d = new Date(pascoa.getFullYear(), pascoa.getMonth(), pascoa.getDate() + n);
+    return dataISO(d.getFullYear(), d.getMonth(), d.getDate());
+  };
+  lista[dataISO(ano, 0, 1)] = 'Confraternização Universal';
+  lista[aPartirDaPascoa(-48)] = 'Carnaval (ponto facultativo)';
+  lista[aPartirDaPascoa(-47)] = 'Carnaval (ponto facultativo)';
+  lista[aPartirDaPascoa(-2)] = 'Sexta-feira Santa';
+  lista[aPartirDaPascoa(0)] = 'Páscoa';
+  lista[dataISO(ano, 3, 21)] = 'Tiradentes';
+  lista[dataISO(ano, 4, 1)] = 'Dia do Trabalho';
+  lista[aPartirDaPascoa(60)] = 'Corpus Christi (ponto facultativo)';
+  lista[dataISO(ano, 8, 7)] = 'Independência do Brasil';
+  lista[dataISO(ano, 9, 12)] = 'Nossa Senhora Aparecida';
+  lista[dataISO(ano, 10, 2)] = 'Finados';
+  lista[dataISO(ano, 10, 15)] = 'Proclamação da República';
+  if(ano >= 2024) lista[dataISO(ano, 10, 20)] = 'Dia da Consciência Negra'; // nacional desde 2024
+  lista[dataISO(ano, 11, 25)] = 'Natal';
+  return lista;
+}
+
+// nome do feriado nacional naquele dia, ou null (também null se a opção está desligada)
+function nomeDoFeriado(ano, mes, dia){
+  if(!mostrarFeriados) return null;
+  return feriadosDoAno(ano)[dataISO(ano, mes, dia)] || null;
+}
+
+function montarSegmentosDaSemana(ano, mes, dias){
+  const segmentos = [];
+  const isoDaColuna = col => dataISO(ano, mes, dias[col]);
+
+  // feriados viram etiquetas de um dia só, no topo de cada dia
+  dias.forEach((dia, col) => {
+    const nome = dia === null ? null : nomeDoFeriado(ano, mes, dia);
+    if(nome){
+      segmentos.push({ ev: { titulo: nome, dataInicio: isoDaColuna(col), feriado: true },
+        c0: col, c1: col, esq: false, dir: false, multi: false, feriado: true });
+    }
+  });
+
+  eventos.forEach(ev => {
+    const recorrente = ev.recorrencia === 'anual' || ev.recorrencia === 'mensal';
+    const fimISO = ev.dataFim || ev.dataInicio;
+    const multi = !recorrente && fimISO !== ev.dataInicio;
+
+    if(recorrente){
+      // recorrentes: cada ocorrência é um dia só
+      dias.forEach((dia, col) => {
+        if(dia !== null && eventoOcorreEm(ev, ano, mes, dia)){
+          segmentos.push({ ev, c0: col, c1: col, esq: false, dir: false, multi: false });
+        }
+      });
+      return;
+    }
+
+    // não recorrente: acha o primeiro e o último dia desta semana que o evento cobre
+    let c0 = -1, c1 = -1;
+    dias.forEach((dia, col) => {
+      if(dia !== null && eventoOcorreEm(ev, ano, mes, dia)){
+        if(c0 === -1) c0 = col;
+        c1 = col;
+      }
+    });
+    if(c0 === -1) return;
+    segmentos.push({
+      ev, c0, c1, multi,
+      esq: ev.dataInicio < isoDaColuna(c0),  // já tinha começado antes: ponta esquerda reta
+      dir: fimISO > isoDaColuna(c1)          // continua depois: ponta direita reta
+    });
+  });
+
+  // ordem de colocação: barras de vários dias primeiro (ficam no topo),
+  // depois os de um dia; dentro disso, os que começam antes e os mais longos primeiro
+  segmentos.sort((a, b) =>
+    (b.multi - a.multi) ||
+    (a.c0 - b.c0) ||
+    ((b.feriado ? 1 : 0) - (a.feriado ? 1 : 0)) ||
+    // quem começou antes fica por cima, assim a mesma barra mantém a mesma
+    // ordem de uma semana para a outra
+    (a.ev.dataInicio || '').localeCompare(b.ev.dataInicio || '') ||
+    ((b.c1 - b.c0) - (a.c1 - a.c0)) ||
+    ((a.ev.horario || '').localeCompare(b.ev.horario || '')) ||
+    ((a.ev.titulo || '').localeCompare(b.ev.titulo || ''))
+  );
+
+  // distribui em "faixas" (linhas): cada segmento vai pra primeira faixa onde
+  // não bate com outro já colocado
+  const faixas = [];
+  segmentos.forEach(seg => {
+    let i = 0;
+    while(i < faixas.length && faixas[i].some(o => !(seg.c1 < o.c0 || seg.c0 > o.c1))) i++;
+    if(i === faixas.length) faixas.push([]);
+    faixas[i].push(seg);
+    seg.faixa = i;
+  });
+  return { segmentos, totalFaixas: faixas.length };
+}
+
+function renderCalendario(){
+  const grid = document.getElementById('calendarioGrid');
+  grid.innerHTML = '';
+
+  const ano = mesCalendarioAtual.getFullYear();
+  const mes = mesCalendarioAtual.getMonth();
+
+  document.getElementById('calendarioLabel').textContent =
+    mesCalendarioAtual.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+
+  const primeiroDia = new Date(ano, mes, 1);
+  const ultimoDia = new Date(ano, mes + 1, 0);
+  const diaSemanaDoInicio = primeiroDia.getDay(); // 0 = domingo
+  const totalDiasNoMes = ultimoDia.getDate();
+  const hoje = new Date();
+  const faixasMinimas = window.innerWidth <= 480 ? 2 : 3; // altura mínima de cada semana
+
+  // quantas semanas (linhas) o mês ocupa
+  const totalSemanas = Math.ceil((diaSemanaDoInicio + totalDiasNoMes) / 7);
+
+  for(let semana = 0; semana < totalSemanas; semana++){
+    // número do dia em cada uma das 7 colunas (null = fora do mês)
+    const dias = [];
+    for(let col = 0; col < 7; col++){
+      const dia = semana * 7 + col - diaSemanaDoInicio + 1;
+      dias.push(dia >= 1 && dia <= totalDiasNoMes ? dia : null);
+    }
+
+    const { segmentos, totalFaixas } = montarSegmentosDaSemana(ano, mes, dias);
+    const faixas = Math.max(totalFaixas, faixasMinimas);
+
+    // Um evento pode ocupar DUAS linhas (título quebrando pra de baixo) quando a
+    // faixa logo abaixo existe e está livre em todas as colunas que ele cobre.
+    // Se tiver outro evento embaixo, fica em uma linha só, com o texto cortado.
+    const livreAbaixo = seg =>
+      seg.faixa + 1 < faixas &&
+      !segmentos.some(o => o.faixa === seg.faixa + 1 && !(o.c1 < seg.c0 || o.c0 > seg.c1));
+
+    // cada semana é uma grade de 7 colunas: linha 1 = número do dia,
+    // linhas seguintes = as faixas de eventos
+    const linha = document.createElement('div');
+    linha.className = 'cal-week';
+    linha.style.gridTemplateRows = '20px repeat(' + faixas + ', 17px)';
+
+    // fundo: uma "caixinha" por dia, ocupando a semana inteira na vertical
+    dias.forEach((dia, col) => {
+      const cell = document.createElement('div');
+      cell.className = 'cal-cell';
+      cell.style.gridColumn = String(col + 1);
+      cell.style.gridRow = '1 / ' + (faixas + 2);
+      if(dia === null){
+        cell.classList.add('empty');
+        linha.appendChild(cell);
+        return;
+      }
+      const ehHoje = hoje.getFullYear() === ano && hoje.getMonth() === mes && hoje.getDate() === dia;
+      if(ehHoje) cell.classList.add('hoje');
+
+      // clicar em qualquer parte "vazia" da célula abre o formulário de
+      // criar evento nesse dia — o stopPropagation nas barras de evento
+      // (abaixo) evita que clicar num evento existente dispare isso também
+      cell.onclick = () => {
+        eventoEditandoId = null;
+        eventoFormAbertoParaDia = dataISO(ano, mes, dia);
+        renderCalendario();
+      };
+
+      const numero = document.createElement('div');
+      numero.className = 'cal-day-num';
+      numero.textContent = dia;
+      if(nomeDoFeriado(ano, mes, dia)) numero.style.color = COR_FERIADO;
+      cell.appendChild(numero);
+      const clima = previsaoDoDia(ano, mes, dia);
+      if(clima){
+        const info = iconeDoTempo(clima.codigo);
+        const tempo = document.createElement('span');
+        tempo.className = 'cal-tempo';
+        tempo.textContent = info.icone + (window.innerWidth > 480 && clima.max !== null ? ' ' + clima.max + '°' : '');
+        tempo.title = info.texto +
+          (clima.min !== null && clima.max !== null ? ' · ' + clima.min + '° a ' + clima.max + '°' : '') +
+          (clima.chuva !== null ? ' · chuva ' + clima.chuva + '%' : '');
+        cell.appendChild(tempo);
+      }
+      linha.appendChild(cell);
+    });
+
+    // por cima: as barras/etiquetas de evento, posicionadas por coluna e faixa
+    segmentos.forEach(seg => {
+      const tag = document.createElement('div');
+      tag.className = 'cal-evento' + (seg.multi ? ' multi' : '');
+      tag.textContent = seg.ev.titulo;
+      tag.style.gridColumn = (seg.c0 + 1) + ' / span ' + (seg.c1 - seg.c0 + 1);
+      if(livreAbaixo(seg)){
+        tag.classList.add('duas-linhas');
+        tag.style.gridRow = (seg.faixa + 2) + ' / span 2';
+      }else{
+        tag.style.gridRow = String(seg.faixa + 2);
+      }
+      // passando o mouse mostra o título completo e as anotações, se houver
+      tag.title = seg.ev.notas ? seg.ev.titulo + '\n\n' + seg.ev.notas : seg.ev.titulo;
+
+      const cor = corDoEvento(seg.ev);
+      if(seg.multi){
+        // barra contínua: cor cheia, texto branco; ponta reta onde o evento continua
+        tag.style.background = cor;
+        tag.style.color = '#fff';
+        tag.style.marginLeft = seg.esq ? '0' : '2px';
+        tag.style.marginRight = seg.dir ? '0' : '2px';
+        tag.style.borderRadius =
+          (seg.esq ? '0' : '4px') + ' ' + (seg.dir ? '0' : '4px') + ' ' +
+          (seg.dir ? '0' : '4px') + ' ' + (seg.esq ? '0' : '4px');
+      }else{
+        // evento de um dia: fundo clarinho com faixa colorida à esquerda
+        tag.style.background = hexParaRgba(cor, 0.18);
+        tag.style.borderLeft = '3px solid ' + cor;
+        tag.style.color = 'var(--ink)';
+        tag.style.marginLeft = '2px';
+        tag.style.marginRight = '2px';
+      }
+
+      if(seg.feriado){
+        // feriado: não é um evento seu, então não abre edição (tocar nele cria um evento
+        // no dia, como tocar no resto da caixinha)
+        tag.classList.add('feriado');
+        tag.style.background = hexParaRgba(COR_FERIADO, 0.12);
+        tag.style.borderLeft = '3px solid ' + COR_FERIADO;
+        tag.style.color = COR_FERIADO;
+        tag.title = 'Feriado nacional: ' + seg.ev.titulo;
+        tag.style.cursor = 'default';
+        linha.appendChild(tag);
+        return;
+      }
+      tag.onclick = (e) => {
+        e.stopPropagation();
+        eventoFormAbertoParaDia = null;
+        eventoEditandoId = seg.ev.id;
+        renderCalendario();
+      };
+      linha.appendChild(tag);
+    });
+
+    grid.appendChild(linha);
+  }
+
+  buildEventoFormArea();
+}
+
+// ---------- Aviso dos eventos do Calendário ----------
+// Cada evento pode te avisar por notificação, de dois jeitos (campos salvos no evento):
+//   • N DIAS ANTES, num horário do dia: avisoDias (0 = no próprio dia) + avisoHora ("09:00")
+//   • X MINUTOS ANTES do horário do evento (só vale se o evento tem horário): avisoMinutos
+// Nenhum dos dois = sem aviso (é o caso dos eventos antigos). avisoAte é o último dia
+// em que ainda pode haver aviso ('9999-12-31' nos eventos que se repetem): o Worker usa
+// esse campo para ler só os eventos que ainda importam (menos leituras no Firestore).
+// ATENÇÃO: quem manda a notificação é o Worker do Cloudflare, que tem os MESMOS limites
+// (EVENTO_AVISO_DIAS_MAX e EVENTO_AVISO_MIN_MAX no worker.js). Se mudar aqui, mude lá.
+const EVENTO_AVISO_DIAS_MAX = 60;
+const EVENTO_AVISO_MIN_MAX = 720;          // 12 h
+const EVENTO_AVISO_HORA_PADRAO = '09:00';
+const EVENTO_AVISO_ATE_SEMPRE = '9999-12-31';
+const CAMPOS_AVISO_EVENTO = ['avisoDias', 'avisoHora', 'avisoMinutos', 'avisoAte'];
+
+// O aviso efetivo de um evento: { tipo: 'nenhum' } | { tipo: 'dias', dias, hora } | { tipo: 'min', minutos }
+function avisoDoEvento(ev){
+  if(ev && ev.horario && Number.isInteger(ev.avisoMinutos) && ev.avisoMinutos >= 0){
+    return { tipo: 'min', minutos: Math.min(ev.avisoMinutos, EVENTO_AVISO_MIN_MAX) };
+  }
+  if(ev && Number.isInteger(ev.avisoDias) && ev.avisoDias >= 0){
+    const hora = /^\d{2}:\d{2}$/.test(ev.avisoHora || '') ? ev.avisoHora : EVENTO_AVISO_HORA_PADRAO;
+    return { tipo: 'dias', dias: Math.min(ev.avisoDias, EVENTO_AVISO_DIAS_MAX), hora };
+  }
+  return { tipo: 'nenhum' };
+}
+
+// Se qualquer item desta "assinatura" mudar ao editar o evento, o aviso já enviado
+// (campo ultimaNotificacao, gravado pelo Worker) deixa de valer e ele pode avisar de novo.
+function assinaturaAvisoEvento(ev){
+  return [ev.dataInicio, ev.recorrencia || 'nenhuma', ev.horario || '',
+    ev.avisoDias, ev.avisoHora, ev.avisoMinutos].join('|');
+}
+
+// Campo "Avisar:" do formulário do evento. O resultado fica em elemento.obterAviso()
+// (usado ao clicar em Salvar) e elemento.definirTemHorario(true/false) liga ou desliga
+// a opção "antes do horário", que só faz sentido se o evento tiver um horário.
+function criarSeletorDeAvisoEvento(eventoAtual){
+  // evento novo já vem com "1 dia antes, às 09:00"; evento antigo sem aviso fica sem aviso
+  const inicial = eventoAtual
+    ? avisoDoEvento(eventoAtual)
+    : { tipo: 'dias', dias: 1, hora: EVENTO_AVISO_HORA_PADRAO };
+
+  const wrap = document.createElement('div');
+  wrap.className = 'aviso-evento';
+
+  const select = document.createElement('select');
+  select.title = 'quando avisar por notificação';
+  const optNenhum = document.createElement('option');
+  optNenhum.value = 'nenhum'; optNenhum.textContent = 'sem aviso';
+  const optDias = document.createElement('option');
+  optDias.value = 'dias'; optDias.textContent = 'avisar dias antes';
+  const optMin = document.createElement('option');
+  optMin.value = 'min'; optMin.textContent = 'avisar antes do horário';
+  [optNenhum, optDias, optMin].forEach(o => select.appendChild(o));
+  select.value = inicial.tipo;
+
+  // ---- "N dias antes, às HH:MM" ----
+  const grupoDias = document.createElement('span');
+  grupoDias.className = 'aviso-evento-grupo';
+  const numDias = document.createElement('input');
+  numDias.type = 'number'; numDias.min = '0'; numDias.max = String(EVENTO_AVISO_DIAS_MAX); numDias.step = '1';
+  numDias.value = String(inicial.tipo === 'dias' ? inicial.dias : 1);
+  const horaAviso = document.createElement('input');
+  horaAviso.type = 'time';
+  horaAviso.value = inicial.tipo === 'dias' ? inicial.hora : EVENTO_AVISO_HORA_PADRAO;
+  grupoDias.appendChild(numDias);
+  grupoDias.appendChild(document.createTextNode(' dia(s) antes (0 = no dia), às '));
+  grupoDias.appendChild(horaAviso);
+
+  // ---- "X minutos/horas antes do horário do evento" ----
+  const grupoMin = document.createElement('span');
+  grupoMin.className = 'aviso-evento-grupo';
+  const numMin = document.createElement('input');
+  numMin.type = 'number'; numMin.min = '0'; numMin.step = '1';
+  const unidade = document.createElement('select');
+  [['min', 'minutos'], ['h', 'horas']].forEach(([valor, nome]) => {
+    const opt = document.createElement('option');
+    opt.value = valor; opt.textContent = nome;
+    unidade.appendChild(opt);
+  });
+  if(inicial.tipo === 'min' && inicial.minutos > 0 && inicial.minutos % 60 === 0){
+    numMin.value = String(inicial.minutos / 60); unidade.value = 'h';
+  }else if(inicial.tipo === 'min'){
+    numMin.value = String(inicial.minutos); unidade.value = 'min';
+  }else{
+    numMin.value = '30'; unidade.value = 'min';
+  }
+  grupoMin.appendChild(numMin);
+  grupoMin.appendChild(unidade);
+  grupoMin.appendChild(document.createTextNode(' antes do horário do evento'));
+
+  function diasEscolhidos(){
+    if(numDias.value.trim() === '') return 1;
+    const n = Math.floor(Number(numDias.value));
+    if(!Number.isFinite(n) || n < 0) return 1;
+    return Math.min(n, EVENTO_AVISO_DIAS_MAX);
+  }
+  function minutosEscolhidos(){
+    if(numMin.value.trim() === '') return 30;
+    const n = Math.floor(Number(numMin.value));
+    if(!Number.isFinite(n) || n < 0) return 30;
+    return Math.min(n * (unidade.value === 'h' ? 60 : 1), EVENTO_AVISO_MIN_MAX);
+  }
+  function atualizarVisibilidade(){
+    grupoDias.classList.toggle('hidden', select.value !== 'dias');
+    grupoMin.classList.toggle('hidden', select.value !== 'min');
+  }
+
+  select.onchange = atualizarVisibilidade;
+  // se digitou mais que o máximo, mostra o valor já ajustado
+  numDias.onchange = () => { numDias.value = String(diasEscolhidos()); };
+  const ajustarMinutos = () => {
+    if(numMin.value.trim() === '') return;
+    const total = minutosEscolhidos();
+    numMin.value = String(unidade.value === 'h' ? total / 60 : total);
+  };
+  numMin.onchange = ajustarMinutos;
+  unidade.onchange = ajustarMinutos;
+  atualizarVisibilidade();
+
+  wrap.appendChild(select);
+  wrap.appendChild(grupoDias);
+  wrap.appendChild(grupoMin);
+
+  wrap.definirTemHorario = (tem) => {
+    optMin.disabled = !tem;
+    optMin.textContent = tem ? 'avisar antes do horário' : 'avisar antes do horário (defina um horário)';
+    if(!tem && select.value === 'min'){
+      select.value = 'dias';
+      atualizarVisibilidade();
+    }
+  };
+  wrap.obterAviso = () => {
+    if(select.value === 'dias'){
+      return { avisoDias: diasEscolhidos(), avisoHora: horaAviso.value || EVENTO_AVISO_HORA_PADRAO };
+    }
+    if(select.value === 'min' && !optMin.disabled){
+      return { avisoMinutos: minutosEscolhidos() };
+    }
+    return {};
+  };
+  return wrap;
+}
+
+// Monta o formulário de criar (eventoFormAbertoParaDia) ou editar
+// (eventoEditandoId) um evento. Só um dos dois fica ativo por vez.
+function buildEventoFormArea(){
+  const area = document.getElementById('calendarioFormArea');
+  area.innerHTML = '';
+
+  const criando = !!eventoFormAbertoParaDia;
+  const editando = !!eventoEditandoId;
+  if(!criando && !editando) return;
+
+  const eventoAtual = editando ? eventos.find(e => e.id === eventoEditandoId) : null;
+  if(editando && !eventoAtual) { eventoEditandoId = null; return; }
+
+  const painel = document.createElement('div');
+  painel.className = 'cal-form';
+
+  const titulo = document.createElement('div');
+  titulo.textContent = editando
+    ? 'Editar evento'
+    : 'Novo evento em ' + eventoFormAbertoParaDia.split('-').reverse().join('/');
+  titulo.style.marginBottom = '10px';
+  titulo.style.fontWeight = 'bold';
+  painel.appendChild(titulo);
+
+  const seletorAviso = criarSeletorDeAvisoEvento(eventoAtual);
+
+  // ---- linha: título do evento ----
+  const linhaTitulo = document.createElement('div');
+  linhaTitulo.className = 'cal-form-row';
+  const inputTitulo = document.createElement('input');
+  inputTitulo.type = 'text';
+  inputTitulo.placeholder = 'Título do evento';
+  inputTitulo.value = eventoAtual ? eventoAtual.titulo : '';
+  linhaTitulo.appendChild(inputTitulo);
+  painel.appendChild(linhaTitulo);
+
+  // ---- linha: data de início / vários dias / data de fim ----
+  const linhaData = document.createElement('div');
+  linhaData.className = 'cal-form-row';
+
+  const inputInicio = document.createElement('input');
+  inputInicio.type = 'date';
+  inputInicio.value = eventoAtual ? eventoAtual.dataInicio : eventoFormAbertoParaDia;
+  linhaData.appendChild(inputInicio);
+
+  const labelVariosDias = document.createElement('label');
+  const checkVariosDias = document.createElement('input');
+  checkVariosDias.type = 'checkbox';
+  const temVariosDias = !!(eventoAtual && eventoAtual.dataFim && eventoAtual.dataFim !== eventoAtual.dataInicio);
+  checkVariosDias.checked = temVariosDias;
+  labelVariosDias.appendChild(checkVariosDias);
+  labelVariosDias.appendChild(document.createTextNode(' vários dias'));
+  linhaData.appendChild(labelVariosDias);
+
+  const inputFim = document.createElement('input');
+  inputFim.type = 'date';
+  inputFim.value = eventoAtual ? (eventoAtual.dataFim || eventoAtual.dataInicio) : eventoFormAbertoParaDia;
+  inputFim.style.display = temVariosDias ? '' : 'none';
+  linhaData.appendChild(inputFim);
+
+  checkVariosDias.onchange = () => {
+    inputFim.style.display = checkVariosDias.checked ? '' : 'none';
+  };
+
+  painel.appendChild(linhaData);
+
+  // ---- linha: dia todo / horário ----
+  const linhaHorario = document.createElement('div');
+  linhaHorario.className = 'cal-form-row';
+
+  const labelDiaTodo = document.createElement('label');
+  const checkDiaTodo = document.createElement('input');
+  checkDiaTodo.type = 'checkbox';
+  const ehDiaTodo = !eventoAtual || !eventoAtual.horario;
+  checkDiaTodo.checked = ehDiaTodo;
+  labelDiaTodo.appendChild(checkDiaTodo);
+  labelDiaTodo.appendChild(document.createTextNode(' dia todo'));
+  linhaHorario.appendChild(labelDiaTodo);
+
+  const inputHorario = document.createElement('input');
+  inputHorario.type = 'time';
+  inputHorario.value = eventoAtual && eventoAtual.horario ? eventoAtual.horario : '';
+  inputHorario.style.display = ehDiaTodo ? 'none' : '';
+  linhaHorario.appendChild(inputHorario);
+
+  // "avisar antes do horário" só existe quando o evento tem um horário preenchido
+  const atualizarAvisoPorHorario = () => {
+    seletorAviso.definirTemHorario(!checkDiaTodo.checked && inputHorario.value !== '');
+  };
+  checkDiaTodo.onchange = () => {
+    inputHorario.style.display = checkDiaTodo.checked ? 'none' : '';
+    atualizarAvisoPorHorario();
+  };
+  inputHorario.oninput = atualizarAvisoPorHorario;
+  inputHorario.onchange = atualizarAvisoPorHorario;
+
+  painel.appendChild(linhaHorario);
+
+  // ---- linha: recorrência ----
+  const linhaRecorrencia = document.createElement('div');
+  linhaRecorrencia.className = 'cal-form-row';
+  linhaRecorrencia.appendChild(document.createTextNode('Repete:'));
+  const selectRecorrencia = document.createElement('select');
+  [['nenhuma', 'Não repete'], ['mensal', 'Todo mês'], ['anual', 'Todo ano']].forEach(([valor, texto]) => {
+    const opt = document.createElement('option');
+    opt.value = valor;
+    opt.textContent = texto;
+    if(eventoAtual && eventoAtual.recorrencia === valor) opt.selected = true;
+    if(!eventoAtual && valor === 'nenhuma') opt.selected = true;
+    selectRecorrencia.appendChild(opt);
+  });
+  linhaRecorrencia.appendChild(selectRecorrencia);
+  painel.appendChild(linhaRecorrencia);
+
+  // ---- linha: aviso por notificação ----
+  const linhaAviso = document.createElement('div');
+  linhaAviso.className = 'cal-form-row';
+  linhaAviso.appendChild(document.createTextNode('Avisar:'));
+  linhaAviso.appendChild(seletorAviso);
+  painel.appendChild(linhaAviso);
+  atualizarAvisoPorHorario();
+
+  // ---- linha: cor do evento ----
+  let corSelecionada = corDoEvento(eventoAtual);
+  const linhaCor = document.createElement('div');
+  linhaCor.className = 'cal-form-row';
+  linhaCor.appendChild(document.createTextNode('Cor:'));
+  const bolinhas = [];
+  CORES_EVENTO.forEach(({ hex, nome }) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cal-cor-opcao';
+    b.style.background = hex;
+    b.title = nome;
+    b.setAttribute('aria-label', nome);
+    b.classList.toggle('selecionada', hex === corSelecionada);
+    b.onclick = () => {
+      corSelecionada = hex;
+      bolinhas.forEach(x => x.classList.toggle('selecionada', x === b));
+    };
+    bolinhas.push(b);
+    linhaCor.appendChild(b);
+  });
+  painel.appendChild(linhaCor);
+
+  // ---- linha: anotações do evento (igual à "descrição" do Google Agenda) ----
+  const linhaNotas = document.createElement('div');
+  linhaNotas.className = 'cal-form-row cal-form-notas';
+  const inputNotas = document.createElement('textarea');
+  inputNotas.rows = 3;
+  inputNotas.placeholder = 'Anotações (opcional): endereço, link, o que levar...';
+  inputNotas.value = (eventoAtual && eventoAtual.notas) || '';
+  linhaNotas.appendChild(inputNotas);
+  painel.appendChild(linhaNotas);
+
+  // ---- botões ----
+  const acoes = document.createElement('div');
+  acoes.className = 'cal-form-actions';
+
+  const btnSalvar = document.createElement('button');
+  btnSalvar.textContent = 'Salvar';
+  btnSalvar.onclick = () => {
+    // campos de aviso começam "undefined" (= apagar) e o seletor preenche os que valem
+    const aviso = {
+      avisoDias: undefined, avisoHora: undefined, avisoMinutos: undefined,
+      ...seletorAviso.obterAviso()
+    };
+    const temAviso = aviso.avisoDias !== undefined || aviso.avisoMinutos !== undefined;
+    const dadosEvento = {
+      titulo: inputTitulo.value.trim() || 'Sem título',
+      dataInicio: inputInicio.value,
+      dataFim: checkVariosDias.checked ? inputFim.value : inputInicio.value,
+      horario: checkDiaTodo.checked ? null : (inputHorario.value || null),
+      recorrencia: selectRecorrencia.value,
+      cor: corSelecionada,
+      notas: inputNotas.value.trim(),
+      ...aviso,
+      // último dia em que ainda pode haver aviso: eventos que se repetem avisam
+      // sempre; os de data única, até o dia do evento (o aviso é pelo 1º dia)
+      avisoAte: !temAviso ? undefined
+        : (selectRecorrencia.value !== 'nenhuma' ? EVENTO_AVISO_ATE_SEMPRE : inputInicio.value)
+    };
+    if(!dadosEvento.dataInicio) return; // sem data não tem como salvar
+    if(editando){
+      atualizarEvento(eventoEditandoId, dadosEvento);
+    }else{
+      adicionarEvento(dadosEvento);
+    }
+  };
+  acoes.appendChild(btnSalvar);
+
+  if(editando){
+    const btnApagar = document.createElement('button');
+    btnApagar.className = 'cal-apagar';
+    btnApagar.textContent = 'Apagar';
+    btnApagar.onclick = () => removerEvento(eventoEditandoId);
+    acoes.appendChild(btnApagar);
+  }
+
+  const btnCancelar = document.createElement('button');
+  btnCancelar.className = 'cal-cancelar';
+  btnCancelar.textContent = 'Cancelar';
+  btnCancelar.onclick = () => {
+    eventoFormAbertoParaDia = null;
+    eventoEditandoId = null;
+    renderCalendario();
+  };
+  acoes.appendChild(btnCancelar);
+
+  painel.appendChild(acoes);
+  area.appendChild(painel);
+}
+
+function render(){
+  renderCatBar();
+  renderModeBar();
+  renderViewBar();
+  renderMetaBar();
+  const container = document.getElementById('groups');
+  container.innerHTML = '';
+
+  const datalistPastas = document.getElementById('pastaOptions');
+  datalistPastas.innerHTML = distinctPastas().map(p => '<option value="' + p.replace(/"/g,'') + '">').join('');
+
+  getGroupsToRender().forEach(g => {
+    const groupTasks = g.tasksInGroup;
+    const doneCount = groupTasks.filter(isDone).length;
+
+    const section = document.createElement('section');
+    section.className = 'group';
+
+    const head = document.createElement('div');
+    head.className = 'group-head';
+
+    const tabSpan = document.createElement('span');
+    tabSpan.className = 'tab ' + (g.type === 'freq' ? g.freq : (g.type === 'data' ? 'data' : 'pasta'));
+    tabSpan.textContent = g.label;
+    head.appendChild(tabSpan);
+
+    if(g.type === 'freq'){
+      const periodSpan = document.createElement('span');
+      periodSpan.className = 'period-label';
+      periodSpan.textContent = periodLabelFor(g.freq);
+      head.appendChild(periodSpan);
+    } else if(g.pastaName){
+      const renameBtn = document.createElement('button');
+      renameBtn.className = 'pasta-action';
+      renameBtn.textContent = 'renomear';
+      renameBtn.onclick = () => renomearPasta(g.pastaName);
+      const desfazerBtn = document.createElement('button');
+      desfazerBtn.className = 'pasta-action';
+      desfazerBtn.textContent = 'desfazer pasta';
+      desfazerBtn.onclick = () => desfazerPasta(g.pastaName);
+      head.appendChild(renameBtn);
+      head.appendChild(desfazerBtn);
+    }
+
+    const progressSpan = document.createElement('span');
+    progressSpan.className = 'progress';
+    progressSpan.textContent = doneCount + '/' + groupTasks.length;
+    head.appendChild(progressSpan);
+
+    section.appendChild(head);
+
+    const ul = document.createElement('ul');
+    ul.className = 'tasks';
+
+    if(groupTasks.length === 0){
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'nenhuma tarefa aqui ainda';
+      ul.appendChild(li);
+    } else {
+      groupTasks.forEach((task, idx) => {
+        const done = isDone(task);
+        const li = document.createElement('li');
+        const classes = [];
+        if(expandedTaskId === task.id) classes.push('expanded');
+        if(task.missed && !done) classes.push('missed');
+        if(task.pinned) classes.push('pinned-row');
+        const bloqueadaPorMeta = tarefaTravada(task);
+        if(bloqueadaPorMeta) classes.push('meta-bloqueada');
+        li.className = classes.join(' ');
+
+        const moveBtns = document.createElement('div');
+        moveBtns.className = 'move-btns';
+        const upBtn = document.createElement('button');
+        upBtn.className = 'move-btn';
+        upBtn.textContent = '▲';
+        upBtn.disabled = idx === 0;
+        upBtn.onclick = (e) => { e.stopPropagation(); moveTask(task.id, -1); };
+        const downBtn = document.createElement('button');
+        downBtn.className = 'move-btn';
+        downBtn.textContent = '▼';
+        downBtn.disabled = idx === groupTasks.length - 1;
+        downBtn.onclick = (e) => { e.stopPropagation(); moveTask(task.id, 1); };
+        moveBtns.appendChild(upBtn);
+        moveBtns.appendChild(downBtn);
+        li.appendChild(moveBtns);
+
+        const temPassos = task.subtasks && task.subtasks.length > 0;
+
+        let check = document.createElement('div');
+        const comDescricao = temDescricao(task);
+        const abrirOuFecharClique = () => {
+          subtasksOpenId = (subtasksOpenId === task.id) ? null : task.id;
+          render();
+        };
+        if(bloqueadaPorMeta){
+          // travada: mostra o progresso da meta no lugar do check, sem
+          // dar pra marcar enquanto não bater o valor alvo
+          check = construirCheckBloqueado(task);
+          if(comDescricao){
+            li.onclick = abrirOuFecharClique;
+            li.style.cursor = 'pointer';
+          }
+        } else if(temPassos){
+          const feitos = task.subtasks.filter(s => s.done).length;
+          check.className = 'check pipeline-badge' + (done ? ' done' : '');
+          check.textContent = feitos + '/' + task.subtasks.length;
+          // tarefa mãe não tem "marcar direto" — clicar nela só abre/fecha os
+          // mini-passos, sem mexer no painel de editar (pasta/meta/nome ficam
+          // só no botão "editar" mesmo)
+          li.onclick = () => {
+            subtasksOpenId = (subtasksOpenId === task.id) ? null : task.id;
+            render();
+          };
+          li.style.cursor = 'pointer';
+        } else {
+          check.className = 'check' + (done ? ' done' : '');
+          check.textContent = done ? '✓' : '';
+          check.onclick = (e) => { e.stopPropagation(); toggleTask(task.id); };
+          // clicar em qualquer parte do retângulo da tarefa também marca/desmarca —
+          // não só no quadradinho pequeno. Editar/mover/remover têm seu próprio
+          // stopPropagation, então continuam funcionando normalmente por cima disso.
+          // EXCEÇÃO: tarefa com descrição — o clique na linha abre/fecha a
+          // descrição, e só o quadradinho marca como feita.
+          li.onclick = comDescricao ? abrirOuFecharClique : () => toggleTask(task.id);
+          li.style.cursor = 'pointer';
+        }
+
+        let textEl;
+        if(expandedTaskId === task.id){
+          textEl = document.createElement('input');
+          textEl.type = 'text';
+          textEl.className = 'task-edit-input';
+          textEl.value = task.text;
+          textEl.maxLength = 120;
+          textEl.onclick = (e) => e.stopPropagation();
+          textEl.addEventListener('blur', () => renomearTarefa(task.id, textEl.value));
+          textEl.addEventListener('keydown', (e) => {
+            if(e.key === 'Enter'){ e.preventDefault(); textEl.blur(); } // blur() já salva
+            if(e.key === 'Escape'){ expandedTaskId = null; render(); }
+          });
+        } else {
+          textEl = document.createElement('span');
+          textEl.className = 'task-text' + (done ? ' done' : '');
+          textEl.textContent = task.text;
+        }
+
+        li.appendChild(check);
+        li.appendChild(textEl);
+
+        const tagsWrap = document.createElement('div');
+        tagsWrap.className = 'task-tags';
+
+        if(comDescricao){
+          const descTag = document.createElement('span');
+          descTag.className = 'task-desc-ico';
+          descTag.textContent = '📝';
+          descTag.title = 'Tem descrição — clique na tarefa para ver';
+          tagsWrap.appendChild(descTag);
+        }
+
+        if(categoriaEfetiva() === 'all'){
+          const catTag = document.createElement('span');
+          catTag.className = 'task-cat';
+          catTag.textContent = task.category || 'Geral';
+          tagsWrap.appendChild(catTag);
+        }
+
+        if(task.projetoId && !projetoAtivo() && projetoPorId(task.projetoId)){
+          const projTag = document.createElement('span');
+          projTag.className = 'task-cat';
+          projTag.textContent = '📁 ' + projetoPorId(task.projetoId).nome;
+          tagsWrap.appendChild(projTag);
+        }
+
+        if(task.pasta && viewMode !== 'pasta'){
+          const pastaTag = document.createElement('span');
+          pastaTag.className = 'task-pasta';
+          pastaTag.textContent = task.pasta;
+          tagsWrap.appendChild(pastaTag);
+        }
+
+        if(task.diasAtivos){
+          const diasTag = document.createElement('span');
+          diasTag.className = 'task-dias';
+          diasTag.textContent = task.diasAtivos.map(d => 'DSTQQSS'[d]).join(' ');
+          tagsWrap.appendChild(diasTag);
+        }
+
+        if(task.regime){
+          const regimeTag = document.createElement('span');
+          regimeTag.className = 'task-regime';
+          regimeTag.textContent = task.regime === 'integral' ? 'Integral' : 'Meio período';
+          tagsWrap.appendChild(regimeTag);
+        }
+
+        if(tagsWrap.children.length > 0) li.appendChild(tagsWrap);
+
+        function abrirOuFecharEdicao(comFoco){
+          const estaAbrindo = expandedTaskId !== task.id;
+          expandedTaskId = estaAbrindo ? task.id : null;
+          if(estaAbrindo && comFoco) focarCampoDeNomeAoAbrir = true;
+          render();
+        }
+
+        const actionsWrap = document.createElement('div');
+        actionsWrap.className = 'task-actions';
+
+        const pinBtn = document.createElement('button');
+        pinBtn.className = 'pin-btn' + (task.pinned ? ' active' : '');
+        pinBtn.textContent = '📌';
+        pinBtn.title = task.pinned ? 'Desafixar' : 'Fixar no topo';
+        pinBtn.onclick = (e) => { e.stopPropagation(); togglePin(task.id); };
+        actionsWrap.appendChild(pinBtn);
+
+        const editBtn = document.createElement('button');
+        editBtn.className = 'edit-btn';
+        editBtn.textContent = 'editar';
+        editBtn.onclick = (e) => {
+          e.stopPropagation();
+          abrirOuFecharEdicao(true);
+        };
+        actionsWrap.appendChild(editBtn);
+
+        const del = document.createElement('button');
+        del.className = 'del';
+        del.textContent = 'remover';
+        del.onclick = (e) => { e.stopPropagation(); deleteTask(task.id); };
+        actionsWrap.appendChild(del);
+
+        li.appendChild(actionsWrap);
+        ul.appendChild(li);
+
+        if(expandedTaskId === task.id){
+          ul.appendChild(buildPastaPanel(task));
+          if(task.freq === 'daily') ul.appendChild(buildDiasAtivosPanel(task));
+          ul.appendChild(task.meta ? buildMetaPanel(task) : buildAddMetaPanel(task));
+          ul.appendChild(buildBloqueioPanel(task));
+          ul.appendChild(buildProjetoPanel(task));
+          ul.appendChild(buildDescricaoPanel(task));
+        }
+        // a descrição aberta pelo clique aparece acima dos mini-passos (no "editar"
+        // ela já está no próprio painel de edição, então não duplica)
+        if(subtasksOpenId === task.id && expandedTaskId !== task.id && comDescricao){
+          ul.appendChild(buildDescricaoView(task));
+        }
+        // os mini-passos aparecem tanto no "editar" completo quanto no clique
+        // direto na tarefa mãe — mas os dois não duplicam o painel se os dois
+        // estiverem "abertos" ao mesmo tempo por acaso. Tarefa só com descrição
+        // (sem passos) não mostra o painel de passos ao ser aberta pelo clique.
+        if(expandedTaskId === task.id || (subtasksOpenId === task.id && temPassos)){
+          ul.appendChild(buildSubtaskPanel(task, expandedTaskId === task.id));
+        }
+      });
+    }
+
+    section.appendChild(ul);
+    container.appendChild(section);
+  });
+
+  if(focarCampoDeNomeAoAbrir){
+    const campo = document.querySelector('.task-edit-input');
+    if(campo){ campo.focus(); campo.select(); }
+    focarCampoDeNomeAoAbrir = false;
+  }
+
+  if(focarSubtaskAoEditar){
+    const campoSub = document.querySelector('.subtask-edit-input');
+    if(campoSub){ campoSub.focus(); campoSub.select(); }
+    focarSubtaskAoEditar = false;
+  }
+
+  if(telaAtual === 'grade') renderGrade();
+}
+
+// Painel do bloqueio manual: um botão para esconder/mostrar a tarefa, sem meta.
+function buildBloqueioPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+  const label = document.createElement('span');
+  label.textContent = bloqueadaManual(task) ? 'bloqueada: some da lista até você desbloquear' : 'bloquear: esconde da lista, sem meta';
+  row.appendChild(label);
+  const btn = document.createElement('button');
+  btn.textContent = bloqueadaManual(task) ? 'desbloquear' : 'bloquear';
+  btn.onclick = () => alternarBloqueio(task.id);
+  row.appendChild(btn);
+  panel.appendChild(row);
+  return panel;
+}
+
+// Painel de progresso da meta (aparece quando a tarefa tem meta e está
+// expandida). É onde você atualiza o valor atual sem precisar mostrar
+// a tarefa na lista o tempo todo.
+function renomearTarefa(taskId, novoTexto){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const texto = novoTexto.trim();
+  // nome não mudou: não faz nada. Antes sempre redesenhava a lista aqui, e como
+  // esse campo perde o foco quando você clica em outro campo do "editar" (descrição,
+  // pasta, meta...), o redesenho trocava o campo clicado por um novo e o clique se perdia.
+  if(!texto || texto === task.text) return;
+  task.text = texto; // se apagar tudo, mantém o nome antigo em vez de ficar em branco
+  render();
+  salvarTarefa(task);
+}
+
+// ---------- Descrição da tarefa ----------
+// Uma tarefa pode ter uma descrição (o que precisa lembrar antes de fazer).
+// Quando tem, clicar na linha da tarefa ABRE/FECHA a descrição em vez de
+// marcar como feita (igual à tarefa mãe com passos); marcar passa a ser só
+// pelo quadradinho da esquerda.
+function temDescricao(task){
+  return !!(task.descricao && task.descricao.trim());
+}
+
+// Salva a descrição. 'redesenhar' = false quando vem do blur do campo (redesenhar
+// no meio de um clique no botão "salvar" faria o clique se perder).
+function salvarDescricao(taskId, texto, redesenhar){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const novo = texto.trim();
+  if((task.descricao || '') === novo) { if(redesenhar) render(); return; }
+  task.descricao = novo;
+  // sem descrição e sem passos, não há mais nada pra mostrar ao clicar
+  if(!novo && !(task.subtasks && task.subtasks.length > 0) && subtasksOpenId === task.id){
+    subtasksOpenId = null;
+  }
+  if(redesenhar) render();
+  salvarTarefa(task);
+}
+
+// Painel do "editar": caixa de texto pra escrever a descrição
+function buildDescricaoPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel descricao-edit';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const label = document.createElement('div');
+  label.className = 'meta-panel-row';
+  label.textContent = 'descrição (aparece ao clicar na tarefa):';
+  panel.appendChild(label);
+
+  const area = document.createElement('textarea');
+  area.className = 'descricao-input';
+  area.rows = 4;
+  area.placeholder = 'O que você precisa lembrar antes de fazer essa tarefa...';
+  area.value = task.descricao || '';
+  area.addEventListener('blur', () => salvarDescricao(task.id, area.value, false));
+  panel.appendChild(area);
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+  const salvarBtn = document.createElement('button');
+  salvarBtn.textContent = 'salvar descrição';
+  salvarBtn.onclick = () => salvarDescricao(task.id, area.value, true);
+  row.appendChild(salvarBtn);
+  panel.appendChild(row);
+  return panel;
+}
+
+// Coloca o texto dentro do elemento, transformando endereços http(s) em links
+function textoComLinks(container, texto){
+  texto.split(/(https?:\/\/[^\s]+)/g).forEach(parte => {
+    if(/^https?:\/\//.test(parte)){
+      const a = document.createElement('a');
+      a.href = parte;
+      a.textContent = parte;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      container.appendChild(a);
+    }else{
+      container.appendChild(document.createTextNode(parte));
+    }
+  });
+}
+
+// Painel de leitura: a descrição que abre ao clicar na tarefa
+function buildDescricaoView(task){
+  const panel = document.createElement('li');
+  panel.className = 'descricao-panel';
+  panel.onclick = (e) => e.stopPropagation();
+  const texto = document.createElement('div');
+  texto.className = 'descricao-texto';
+  textoComLinks(texto, task.descricao);
+  panel.appendChild(texto);
+  return panel;
+}
+
+function moverTarefaParaPasta(taskId, novoNome){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const nome = novoNome.trim();
+  task.pasta = nome || null; // vazio = "sem pasta"
+  render();
+  salvarTarefa(task);
+}
+
+// Painel pra mudar a pasta de uma tarefa já existente, sem precisar
+// recriá-la. Aparece sempre que a tarefa está expandida, junto com
+// os outros painéis (meta / mini-passos).
+function buildPastaPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'pasta: ' + (task.pasta || 'nenhuma') + ' →';
+  row.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.setAttribute('list', 'pastaOptions');
+  input.placeholder = 'nova pasta (vazio = remover)';
+  input.value = task.pasta || '';
+  row.appendChild(input);
+
+  const moverBtn = document.createElement('button');
+  moverBtn.textContent = 'mover';
+  moverBtn.onclick = () => moverTarefaParaPasta(task.id, input.value);
+  row.appendChild(moverBtn);
+
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter') moverTarefaParaPasta(task.id, input.value);
+  });
+
+  panel.appendChild(row);
+  return panel;
+}
+
+function toggleDiaAtivo(taskId, dia){
+  const task = tasks.find(t => t.id === taskId);
+  if(!task) return;
+  const diasAtuais = task.diasAtivos ? [...task.diasAtivos] : [0,1,2,3,4,5,6];
+  const dias = diasAtuais.includes(dia)
+    ? diasAtuais.filter(d => d !== dia)
+    : [...diasAtuais, dia].sort();
+  task.diasAtivos = (dias.length === 7) ? null : dias; // 7 de 7 = "todo dia", volta ao padrão
+  render();
+  salvarTarefa(task);
+}
+
+// Painel pra mudar em quais dias da semana uma tarefa DIÁRIA já existente
+// realmente vale (ex: academia que não abre domingo).
+function buildDiasAtivosPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'dias ativos:';
+  row.appendChild(label);
+
+  const diasAtuais = task.diasAtivos || [0,1,2,3,4,5,6];
+  const letras = 'DSTQQSS';
+  for(let dia = 0; dia < 7; dia++){
+    const btn = document.createElement('button');
+    btn.className = 'day-btn' + (diasAtuais.includes(dia) ? ' active' : '');
+    btn.textContent = letras[dia];
+    btn.onclick = () => toggleDiaAtivo(task.id, dia);
+    row.appendChild(btn);
+  }
+
+  panel.appendChild(row);
+  return panel;
+}
+
+function buildMetaPanel(task){
+  const panel = document.createElement('li');
+  panel.className = 'meta-panel';
+  panel.onclick = (e) => e.stopPropagation();
+
+  const row = document.createElement('div');
+  row.className = 'meta-panel-row';
+
+  const label = document.createElement('span');
+  label.textContent = 'valor atual:';
+  row.appendChild(label);
+
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '0';
+  input.step = '0.01';
+  input.value = task.meta.atual;
+  row.appendChild(input);
+
+  const metaLabel = document.createElement('span');
+  metaLabel.textContent = '/ meta: ' + task.meta.alvo.toLocaleString('pt-BR');
+  row.appendChild(metaLabel);
+
+  const salvarBtn = document.createElement('button');
+  salvarBtn.textContent = 'salvar';
+  salvarBtn.onclick = () => atualizarMeta(task.id, input.value);
+  row.appendChild(salvarBtn);
+
+  const removerBtn = document.createElement('button');
+  removerBtn.textContent = 'remover meta';
+  removerBtn.onclick = () => removerMeta(task.id);
+  row.appendChild(removerBtn);
+
+  input.addEventListener('keydown', e => {
+    if(e.key === 'Enter') atualizarMeta(task.id, input.value);
+  });
+
+  panel.appendChild(row);
+
+  if(metaAtingida(task)){
+    const okMsg = document.createElement('div');
+    okMsg.className = 'period-label';
+    okMsg.style.marginTop = '8px';
+    okMsg.textContent = '✓ meta batida — já dá pra marcar a tarefa como concluída';
+    panel.appendChild(okMsg);
+  }
+
+  return panel;
+}
+
+// Painel de mini-passos (aparece só quando a tarefa está expandida).
+// É uma <li> separada, de bloco inteiro, em vez de ficar espremida na
+// linha de flex da tarefa.
+function buildSubtaskPanel(task, modoEdicaoCompleta){
+  const panel = document.createElement('li');
+  panel.className = 'subtask-panel';
+  panel.onclick = (e) => e.stopPropagation(); // clicar aqui dentro não deve fechar o painel
+
+  if(!task.subtasks) task.subtasks = [];
+
+  if(task.subtasks.length === 0){
+    // Ainda não existe nenhum passo: este é o momento de "criação" do
+    // pipeline, e é a ÚNICA vez que essa escolha aparece. Depois que o
+    // primeiro passo for adicionado, esse controle some — o valor fica
+    // fixo (só dá pra mudar apagando os passos e recomeçando do zero).
+    const seqRow = document.createElement('label');
+    seqRow.className = 'seq-toggle';
+    const seqCheckbox = document.createElement('input');
+    seqCheckbox.type = 'checkbox';
+    seqCheckbox.checked = !!task.sequential;
+    seqCheckbox.onchange = () => toggleSequential(task.id);
+    seqRow.appendChild(seqCheckbox);
+    seqRow.appendChild(document.createTextNode(' ordem sequencial (só deixa marcar o próximo passo) — escolha antes de adicionar o 1º passo'));
+    panel.appendChild(seqRow);
+  } else {
+    task.subtasks.forEach((sub, i) => {
+      const bloqueado = task.sequential && !sub.done && task.subtasks.slice(0, i).some(s => !s.done);
+
+      const row = document.createElement('div');
+      row.className = 'subtask-row' + (bloqueado ? ' locked' : '');
+
+      const cb = document.createElement('div');
+      cb.className = 'sub-check' + (sub.done ? ' done' : '');
+      cb.textContent = sub.done ? '✓' : '';
+
+      const delSub = document.createElement('button');
+      delSub.className = 'del';
+      delSub.textContent = 'x';
+      delSub.onclick = (e) => { e.stopPropagation(); deleteSubtask(task.id, sub.id); };
+
+      if(!bloqueado){
+        // clicar em qualquer parte da linha marca/desmarca — não só no
+        // quadradinho — igual já funciona nas tarefas mãe
+        row.onclick = () => toggleSubtask(task.id, sub.id);
+        row.style.cursor = 'pointer';
+      }
+
+      const label = document.createElement('span');
+      if(modoEdicaoCompleta && editingSubtaskId === sub.id){
+        const inputEdicao = document.createElement('input');
+        inputEdicao.type = 'text';
+        inputEdicao.className = 'subtask-edit-input';
+        inputEdicao.value = sub.text;
+        inputEdicao.maxLength = 80;
+        inputEdicao.onclick = (e) => e.stopPropagation();
+        inputEdicao.addEventListener('blur', () => renomearSubtask(task.id, sub.id, inputEdicao.value));
+        inputEdicao.addEventListener('keydown', (e) => {
+          if(e.key === 'Enter'){ e.preventDefault(); inputEdicao.blur(); }
+          if(e.key === 'Escape'){ editingSubtaskId = null; render(); }
+        });
+        row.appendChild(cb);
+        row.appendChild(inputEdicao);
+        row.appendChild(delSub);
+        panel.appendChild(row);
+        return; // já montou essa linha em modo edição, pula o resto do loop
+      }
+      label.className = 'sub-text' + (sub.done ? ' done' : '');
+      label.textContent = sub.text;
+      if(bloqueado) label.style.cursor = 'default';
+
+      row.appendChild(cb);
+      row.appendChild(label);
+
+      if(modoEdicaoCompleta){
+        // renomear virou um botão próprio, já que clicar na linha agora marca/desmarca
+        const editSubBtn = document.createElement('button');
+        editSubBtn.className = 'edit-btn';
+        editSubBtn.textContent = 'editar';
+        editSubBtn.onclick = (e) => {
+          e.stopPropagation();
+          editingSubtaskId = sub.id;
+          focarSubtaskAoEditar = true;
+          render();
+        };
+        row.appendChild(editSubBtn);
+      }
+
+      row.appendChild(delSub);
+      panel.appendChild(row);
+    });
+  }
+
+  if(modoEdicaoCompleta){
+    const addRow = document.createElement('div');
+    addRow.className = 'add-subtask-row';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Novo passo...';
+    input.maxLength = 80;
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+';
+    const submeter = () => {
+      addSubtask(task.id, input.value);
+      input.value = '';
+    };
+    addBtn.onclick = submeter;
+    input.addEventListener('keydown', e => { if(e.key === 'Enter') submeter(); });
+    addRow.appendChild(input);
+    addRow.appendChild(addBtn);
+    panel.appendChild(addRow);
+  }
+
+  return panel;
+}
+
+// ---------- Persistência via Firestore ----------
+// ANTES: um documento único "usuarios/<uid>" guardava um campo "tasks"
+// com o array INTEIRO. Toda alteração reenviava tudo, e se alguma aba
+// tivesse uma cópia desatualizada na memória (ex: aba em segundo plano
+// por muito tempo), ela podia sobrescrever o array inteiro com dados
+// velhos, apagando mudanças novas de qualquer outro dispositivo.
+//
+// AGORA: cada tarefa é o SEU PRÓPRIO documento, dentro de
+// "usuarios/<uid>/tarefas/<idDaTarefa>". Uma escrita só mexe no
+// documento daquela tarefa específica — uma aba desatualizada, na
+// pior das hipóteses, só estraga a tarefa que ela mesma tocou por
+// último, nunca mais a lista inteira.
+// O documento "usuarios/<uid>" agora guarda só o campo "mode".
+
+
+async function salvarBloco(bloco){
+  if(!currentUser) return;
+  try{
+    await setDoc(doc(blocosColRef(), bloco.id), bloco);
+  }catch(e){
+    console.error('Falha ao salvar bloco', e);
+  }
+}
+
+function adicionarBloco(dadosBloco){
+  const bloco = { id: 'b' + Date.now() + Math.random().toString(36).slice(2,6), ...dadosBloco };
+  blocos.push(bloco);
+  renderGrade();
+  salvarBloco(bloco);
+}
+
+async function salvarEvento(evento){
+  if(!currentUser) return;
+  try{
+    await setDoc(doc(eventosColRef(), evento.id), evento);
+  }catch(e){
+    console.error('Falha ao salvar evento', e);
+  }
+}
+
+async function apagarEventoDoc(eventoId){
+  if(!currentUser) return;
+  try{
+    await deleteDoc(doc(eventosColRef(), eventoId));
+  }catch(e){
+    console.error('Falha ao apagar evento', e);
+  }
+}
+
+function adicionarEvento(dadosEvento){
+  const evento = { id: 'e' + Date.now() + Math.random().toString(36).slice(2,6), ...dadosEvento };
+  // o Firestore recusa campos "undefined" (os de aviso desligado chegam assim do formulário)
+  Object.keys(evento).forEach(k => { if(evento[k] === undefined) delete evento[k]; });
+  eventos.push(evento);
+  eventoFormAbertoParaDia = null;
+  renderCalendario();
+  salvarEvento(evento);
+}
+
+function atualizarEvento(eventoId, dadosEvento){
+  const evento = eventos.find(e => e.id === eventoId);
+  if(!evento) return;
+  const assinaturaAntes = assinaturaAvisoEvento(evento);
+  Object.assign(evento, dadosEvento);
+  // aviso desligado ou trocado: tira os campos que ficaram "undefined" (o Firestore recusa)
+  Object.keys(evento).forEach(k => { if(evento[k] === undefined) delete evento[k]; });
+  // mudou a data, a repetição, o horário ou o aviso? O aviso que já tinha saído deixa de
+  // valer (a marca "ultimaNotificacao" é gravada pelo Worker); mexer só em título,
+  // cor ou anotações não faz o aviso repetir.
+  if(assinaturaAvisoEvento(evento) !== assinaturaAntes) delete evento.ultimaNotificacao;
+  eventoEditandoId = null;
+  renderCalendario();
+  salvarEvento(evento);
+}
+
+function removerEvento(eventoId){
+  eventos = eventos.filter(e => e.id !== eventoId);
+  eventoEditandoId = null;
+  renderCalendario();
+  apagarEventoDoc(eventoId);
+}
+
+async function apagarBlocoDoc(blocoId){
+  if(!currentUser) return;
+  try{
+    await deleteDoc(doc(blocosColRef(), blocoId));
+  }catch(e){
+    console.error('Falha ao apagar bloco', e);
+  }
+}
+
+async function salvarTarefa(task){
+  if(!currentUser || isApplyingRemoteData) return;
+  try{
+    document.getElementById('syncStatus').textContent = 'salvando...';
+    await setDoc(doc(tarefasColRef(), task.id), task);
+  }catch(e){
+    console.error('Falha ao salvar tarefa', e);
+    document.getElementById('syncStatus').textContent = 'erro ao salvar';
+  }
+}
+
+async function apagarTarefaDoc(taskId){
+  if(!currentUser) return;
+  try{
+    await deleteDoc(doc(tarefasColRef(), taskId));
+  }catch(e){
+    console.error('Falha ao apagar tarefa', e);
+  }
+}
+
+// Salva várias tarefas de uma vez (e apaga outras) numa única operação
+// atômica — usado pelas rotinas de manutenção (atrasadas, reset de
+// pipeline/meta, limpeza de únicas), que podem mexer em mais de uma
+// tarefa ao mesmo tempo.
+async function salvarVariasTarefas(tarefasParaSalvar, idsParaApagar){
+  if(!currentUser) return;
+  if(tarefasParaSalvar.length === 0 && idsParaApagar.length === 0) return;
+  try{
+    document.getElementById('syncStatus').textContent = 'salvando...';
+    const batch = writeBatch(db);
+    tarefasParaSalvar.forEach(t => batch.set(doc(tarefasColRef(), t.id), t));
+    idsParaApagar.forEach(id => batch.delete(doc(tarefasColRef(), id)));
+    await batch.commit();
+  }catch(e){
+    console.error('Falha ao salvar em lote', e);
+    document.getElementById('syncStatus').textContent = 'erro ao salvar';
+  }
+}
+
+
+function togglePin(id){
+  const task = tasks.find(t => t.id === id);
+  if(!task) return;
+  task.pinned = !task.pinned;
+  render();
+  salvarTarefa(task);
+}
+
+function toggleTask(id){
+  const task = tasks.find(t => t.id === id);
+  if(!task) return;
+  const done = isDone(task);
+  task.doneKey = done ? null : currentKey(task.freq);
+  if(isDone(task)) task.missed = false; // "até o próximo check": chegou, limpa o atraso
+  render();
+  salvarTarefa(task);
+}
+
+function deleteTask(id){
+  tasks = tasks.filter(t => t.id !== id);
+  render();
+  apagarTarefaDoc(id);
+}
+
+// ---------- Mini-passos (pipeline) dentro de uma tarefa ----------
+
+function addSubtask(taskId, text){
+  const t = text.trim();
+  if(!t) return;
+  const task = tasks.find(x => x.id === taskId);
+  if(!task) return;
+  if(!task.subtasks) task.subtasks = [];
+  task.subtasks.push({
+    id: 's' + Date.now() + Math.random().toString(36).slice(2,6),
+    text: t,
+    done: false
+  });
+  task.cycleKey = currentKey(task.freq); // marca a que período este progresso pertence
+  render();
+  salvarTarefa(task);
+}
+
+function deleteSubtask(taskId, subId){
+  const task = tasks.find(x => x.id === taskId);
+  if(!task || !task.subtasks) return;
+  task.subtasks = task.subtasks.filter(s => s.id !== subId);
+  // sem nenhum passo restante, a escolha de "ordem sequencial" volta ao
+  // zero — do contrário o checkbox reaparecia marcado com o valor antigo
+  if(task.subtasks.length === 0){
+    task.sequential = false;
+    // fecha o painel de passos aberto pelo clique na tarefa mãe: sem passos, ele
+    // só mostraria o checkbox de "ordem sequencial" solto, e como a tarefa deixa
+    // de ser "pipeline", clicar nela passaria a marcar como feita em vez de fechar
+    if(subtasksOpenId === task.id) subtasksOpenId = null;
+  }
+  // recalcula se a tarefa mãe deve ficar marcada como concluída
+  const todosFeitos = task.subtasks.length > 0 && task.subtasks.every(s => s.done);
+  task.doneKey = todosFeitos ? currentKey(task.freq) : null;
+  if(isDone(task)) task.missed = false;
+  render();
+  salvarTarefa(task);
+}
+
+function renomearSubtask(taskId, subId, novoTexto){
+  const task = tasks.find(x => x.id === taskId);
+  if(!task || !task.subtasks) return;
+  const sub = task.subtasks.find(s => s.id === subId);
+  if(!sub) return;
+  const texto = novoTexto.trim();
+  if(texto) sub.text = texto; // se apagar tudo, mantém o texto antigo
+  editingSubtaskId = null;
+  render();
+  salvarTarefa(task);
+}
+
+function toggleSubtask(taskId, subId){
+  const task = tasks.find(x => x.id === taskId);
+  if(!task || !task.subtasks) return;
+  const idx = task.subtasks.findIndex(s => s.id === subId);
+  if(idx === -1) return;
+  const sub = task.subtasks[idx];
+
+  if(task.sequential && !sub.done){
+    // no modo sequencial, só deixa marcar se todos os passos anteriores já estiverem feitos
+    const temPendenteAntes = task.subtasks.slice(0, idx).some(s => !s.done);
+    if(temPendenteAntes) return;
+  }
+
+  if(task.sequential && sub.done){
+    // desmarcando um passo no modo sequencial: desmarca também os que vêm depois,
+    // pra não deixar um passo "concluído" com um anterior pendente
+    for(let i = idx; i < task.subtasks.length; i++) task.subtasks[i].done = false;
+  } else {
+    sub.done = !sub.done;
+  }
+
+  task.cycleKey = currentKey(task.freq);
+  const todosFeitos = task.subtasks.every(s => s.done);
+  task.doneKey = todosFeitos ? currentKey(task.freq) : null;
+  if(isDone(task)) task.missed = false;
+
+  render();
+  salvarTarefa(task);
+}
+
+function toggleSequential(taskId){
+  const task = tasks.find(x => x.id === taskId);
+  if(!task) return;
+  task.sequential = !task.sequential;
+  render();
+  salvarTarefa(task);
+}
+
+// Troca a tarefa de posição dentro do grupo em que ela está sendo exibida
+// no momento — usa getGroupsToRender() pra "ver" exatamente a mesma lista
+// que está na tela, seja agrupado por Frequência ou por Pasta.
+// Como cada tarefa agora é um documento separado, a ordem entre elas
+// precisa ser um CAMPO salvo (não dá mais pra confiar só na posição
+// dentro do array) — por isso aqui a gente troca o campo "ordem" das
+// duas tarefas envolvidas.
+function moveTask(id, dir){
+  const grupos = getGroupsToRender();
+  const grupoDaTarefa = grupos.find(g => g.tasksInGroup.some(t => t.id === id));
+  if(!grupoDaTarefa) return;
+
+  const visivelNoGrupo = grupoDaTarefa.tasksInGroup;
+  const pos = visivelNoGrupo.findIndex(t => t.id === id);
+  const novaPos = pos + dir;
+  if(novaPos < 0 || novaPos >= visivelNoGrupo.length) return;
+
+  const tarefaA = visivelNoGrupo[pos];
+  const tarefaB = visivelNoGrupo[novaPos];
+  const ordemA = tarefaA.ordem || 0;
+  const ordemB = tarefaB.ordem || 0;
+  tarefaA.ordem = ordemB;
+  tarefaB.ordem = ordemA;
+
+  // também troca a posição no array local, pra tela atualizar na hora,
+  // sem esperar o Firestore confirmar e mandar de volta
+  const i1 = tasks.findIndex(t => t.id === tarefaA.id);
+  const i2 = tasks.findIndex(t => t.id === tarefaB.id);
+  [tasks[i1], tasks[i2]] = [tasks[i2], tasks[i1]];
+
+  render();
+  salvarVariasTarefas([tarefaA, tarefaB], []);
+}
+
+function addTask(){
+  const input = document.getElementById('newTaskText');
+  const catInput = document.getElementById('newTaskCategory');
+  const pastaInput = document.getElementById('newTaskPasta');
+  const regimeInput = document.getElementById('newTaskRegime');
+  const temMetaInput = document.getElementById('newTaskTemMeta');
+  const metaAlvoInput = document.getElementById('newTaskMetaAlvo');
+  const text = input.value.trim();
+  if(!text) return;
+  const category = catInput.value.trim() || 'Geral';
+  const pasta = pastaInput.value.trim() || null; // pasta é opcional, sem valor padrão "Geral"
+  // regime só é considerado quando a categoria é "Trabalho" — mesma regra
+  // que decide se o seletor aparece na tela, pra não salvar um valor que
+  // ficou escondido/esquecido de uma digitação anterior
+  const regime = (category.toLowerCase() === 'trabalho' && regimeInput.value) ? regimeInput.value : null;
+  const alvoDigitado = Number(metaAlvoInput.value);
+  const meta = (temMetaInput.checked && alvoDigitado > 0) ? { alvo: alvoDigitado, atual: 0 } : null;
+  // dias ativos só faz sentido pra tarefas diárias; null = "todo dia" (padrão)
+  const diasAtivos = (selectedFreq === 'daily' && diasSelecionados.size < 7)
+    ? Array.from(diasSelecionados).sort()
+    : null;
+  // nova tarefa entra no fim da lista — maior "ordem" existente + 1
+  const maiorOrdem = tasks.reduce((max, t) => Math.max(max, t.ordem || 0), 0);
+  const novaTarefa = {
+    id: 't' + Date.now() + Math.random().toString(36).slice(2,7),
+    text: text,
+    category: category,
+    pasta: pasta,
+    regime: regime,
+    meta: meta,
+    diasAtivos: diasAtivos,
+    freq: selectedFreq,
+    doneKey: null,
+    ordem: maiorOrdem + 1
+  };
+  if(projetoAtivo()) novaTarefa.projetoId = projetoAtivo(); // criada dentro de um projeto
+  tasks.push(novaTarefa);
+  input.value = '';
+  catInput.value = '';
+  pastaInput.value = '';
+  regimeInput.value = '';
+  temMetaInput.checked = false;
+  metaAlvoInput.value = '';
+  resetarDiaPicker();
+  atualizarVisibilidadeMeta();
+  atualizarVisibilidadeRegime();
+  render();
+  salvarTarefa(novaTarefa);
+}
+
+document.getElementById('addBtn').onclick = addTask;
+
+// ---------- Criar por voz (voz.js) ----------
+// Aviso rápido no pé da tela (some sozinho)
+function mostrarAviso(msg){
+  let aviso = document.getElementById('avisoToast');
+  if(!aviso){
+    aviso = document.createElement('div');
+    aviso.id = 'avisoToast';
+    aviso.className = 'aviso-toast';
+    document.body.appendChild(aviso);
+  }
+  aviso.textContent = msg;
+  aviso.classList.add('visivel');
+  clearTimeout(mostrarAviso.timer);
+  mostrarAviso.timer = setTimeout(() => aviso.classList.remove('visivel'), 3500);
+}
+
+// Cria uma tarefa simples (categoria "Geral", sem pasta/meta) a partir de um texto.
+// Os mesmos campos do addTask() — só que sem ler o formulário da tela.
+function criarTarefaPorTexto(texto, freq){
+  const maiorOrdem = tasks.reduce((max, t) => Math.max(max, t.ordem || 0), 0);
+  const novaTarefa = {
+    id: 't' + Date.now() + Math.random().toString(36).slice(2,7),
+    text: texto,
+    category: 'Geral',
+    pasta: null,
+    regime: null,
+    meta: null,
+    diasAtivos: null,
+    freq: freq,
+    doneKey: null,
+    ordem: maiorOrdem + 1
+  };
+  if(projetoAtivo()) novaTarefa.projetoId = projetoAtivo();
+  tasks.push(novaTarefa);
+  render();
+  salvarTarefa(novaTarefa);
+}
+
+function abrirVoz(autoIniciar){
+  // some com o aviso da criação anterior, pra ele não cobrir os botões do painel
+  const avisoAnterior = document.getElementById('avisoToast');
+  if(avisoAnterior) avisoAnterior.classList.remove('visivel');
+  abrirPainelDeVoz({
+    criarTarefa: criarTarefaPorTexto,
+    criarEvento: adicionarEvento,   // o mesmo que o formulário do Calendário usa
+    avisar: mostrarAviso
+  }, { autoIniciar });
+}
+document.getElementById('micBtn').onclick = () => abrirVoz(false);
+
+// O Regime (meio período/integral) só faz sentido pra tarefas de "Trabalho",
+// então ele fica escondido até a pessoa digitar essa categoria.
+const categoryInputEl = document.getElementById('newTaskCategory');
+const regimeSelectEl = document.getElementById('newTaskRegime');
+function atualizarVisibilidadeRegime(){
+  const ehTrabalho = categoryInputEl.value.trim().toLowerCase() === 'trabalho';
+  regimeSelectEl.classList.toggle('hidden', !ehTrabalho);
+  if(!ehTrabalho) regimeSelectEl.value = ''; // some a categoria, some junto o valor escolhido
+}
+categoryInputEl.addEventListener('input', atualizarVisibilidadeRegime);
+
+// O campo de "valor alvo" da meta só aparece quando o checkbox "tem meta?"
+// está marcado — antes disso ele fica escondido, fora do caminho.
+const temMetaCheckboxEl = document.getElementById('newTaskTemMeta');
+const metaAlvoInputEl = document.getElementById('newTaskMetaAlvo');
+function atualizarVisibilidadeMeta(){
+  metaAlvoInputEl.classList.toggle('hidden', !temMetaCheckboxEl.checked);
+  if(!temMetaCheckboxEl.checked) metaAlvoInputEl.value = '';
+}
+temMetaCheckboxEl.addEventListener('change', atualizarVisibilidadeMeta);
+
+document.getElementById('newTaskText').addEventListener('keydown', e => {
+  if(e.key === 'Enter') addTask();
+});
+document.getElementById('freqPicker').addEventListener('click', e => {
+  const btn = e.target.closest('.freq-btn');
+  if(!btn) return;
+  selectedFreq = btn.dataset.freq;
+  document.querySelectorAll('.freq-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('dayPicker').classList.toggle('hidden', selectedFreq !== 'daily');
+});
+
+document.getElementById('dayPicker').addEventListener('click', e => {
+  const btn = e.target.closest('.day-btn');
+  if(!btn) return;
+  const dia = Number(btn.dataset.day);
+  if(diasSelecionados.has(dia)){
+    diasSelecionados.delete(dia);
+    btn.classList.remove('active');
+  } else {
+    diasSelecionados.add(dia);
+    btn.classList.add('active');
+  }
+});
+
+function resetarDiaPicker(){
+  diasSelecionados = new Set([0,1,2,3,4,5,6]);
+  document.querySelectorAll('#dayPicker .day-btn').forEach(b => b.classList.add('active'));
+}
+document.getElementById('modeBar').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if(!btn) return;
+  currentMode = btn.dataset.mode;
+  render();
+  salvarModo(currentMode);
+});
+
+document.getElementById('viewBar').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if(!btn) return;
+  viewMode = btn.dataset.view;
+  guardarPreferencia(PREFS_LISTA.view, viewMode); // lembra neste aparelho (não vai para o Firestore)
+  render();
+});
+
+document.getElementById('metaBar').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if(!btn) return;
+  showBlocked = btn.dataset.showblocked === 'true';
+  guardarPreferencia(PREFS_LISTA.bloqueadas, showBlocked ? '1' : '0'); // lembra neste aparelho
+  render();
+});
+
+document.getElementById('telaToggle').addEventListener('click', e => {
+  const btn = e.target.closest('.tela-btn');
+  if(!btn) return;
+  setTelaAtual(btn.dataset.tela);
+  if(telaAtual === 'projetos') projetoAbertoId = null; // tocar na aba volta para a lista de projetos
+  atualizarTelas();
+});
+
+document.getElementById('projBar').addEventListener('click', e => {
+  const btn = e.target.closest('.mode-btn');
+  if(!btn) return;
+  showProjetoTarefas = btn.dataset.showprojetos === 'true';
+  guardarPreferencia(CHAVE_SHOW_PROJETOS, showProjetoTarefas ? '1' : '0'); // só neste aparelho
+  render();
+});
+document.getElementById('btnNovoProjeto').onclick = () => {
+  const campo = document.getElementById('novoProjetoNome');
+  criarProjeto(campo.value);
+  campo.value = '';
+};
+document.getElementById('novoProjetoNome').addEventListener('keydown', e => {
+  if(e.key === 'Enter'){ e.preventDefault(); document.getElementById('btnNovoProjeto').click(); }
+});
+
+// ⚙ Configurações do Calendário: abre/fecha o painel; a caixinha liga os feriados
+const calFeriadosCheckEl = document.getElementById('calFeriadosCheck');
+calFeriadosCheckEl.checked = mostrarFeriados;
+document.getElementById('calConfigBtn').onclick = (e) => {
+  const painel = document.getElementById('calConfigPainel');
+  const aberto = painel.classList.toggle('hidden') === false;
+  e.currentTarget.setAttribute('aria-expanded', String(aberto));
+};
+// ---------- Previsão do tempo ----------
+// Uma nuvenzinha (ícone do tempo) no canto de cada dia, de hoje até ~15 dias à frente.
+// Dados do Open-Meteo (gratuito, sem chave), pela localização DESTE aparelho (o navegador
+// pede permissão). Ligar/desligar vale para a conta toda; a localização e a previsão
+// guardada (cópia por 3 h, para abrir rápido e funcionar sem internet) são de cada aparelho.
+const CHAVE_PREVISAO = 'rotina.calendario.previsao';
+const CHAVE_LOCAL_PREVISAO = 'rotina.calendario.previsaoLocal';
+const CHAVE_CACHE_PREVISAO = 'rotina.calendario.previsaoCache';
+const PREVISAO_VALIDADE_MS = 3 * 60 * 60 * 1000;
+let mostrarPrevisao = lerPreferencia(CHAVE_PREVISAO) === '1';
+let previsaoPorDia = {};          // { 'AAAA-MM-DD': { codigo, max, min, chuva } }
+let buscandoPrevisao = false;
+const calPrevisaoStatusEl = document.getElementById('calPrevisaoStatus');
+function mostrarStatusPrevisao(texto){ calPrevisaoStatusEl.textContent = texto || ''; }
+
+// código WMO do Open-Meteo -> ícone e descrição
+function iconeDoTempo(codigo){
+  if(codigo === 0) return { icone: '☀️', texto: 'Céu limpo' };
+  if(codigo === 1) return { icone: '🌤️', texto: 'Predominantemente limpo' };
+  if(codigo === 2) return { icone: '⛅', texto: 'Parcialmente nublado' };
+  if(codigo === 3) return { icone: '☁️', texto: 'Nublado' };
+  if(codigo === 45 || codigo === 48) return { icone: '🌫️', texto: 'Neblina' };
+  if(codigo >= 51 && codigo <= 57) return { icone: '🌦️', texto: 'Garoa' };
+  if(codigo >= 61 && codigo <= 67) return { icone: '🌧️', texto: 'Chuva' };
+  if(codigo >= 71 && codigo <= 77) return { icone: '❄️', texto: 'Neve' };
+  if(codigo >= 80 && codigo <= 82) return { icone: '🌧️', texto: 'Pancadas de chuva' };
+  if(codigo === 85 || codigo === 86) return { icone: '❄️', texto: 'Pancadas de neve' };
+  if(codigo >= 95) return { icone: '⛈️', texto: 'Tempestade' };
+  return { icone: '🌡️', texto: 'Tempo' };
+}
+function previsaoDoDia(ano, mes, dia){
+  if(!mostrarPrevisao) return null;
+  return previsaoPorDia[dataISO(ano, mes, dia)] || null;
+}
+// resposta do Open-Meteo -> { 'AAAA-MM-DD': {...} } (ignora o que vier incompleto)
+function lerRespostaDaPrevisao(json){
+  const d = json && json.daily;
+  const dias = {};
+  if(!d || !Array.isArray(d.time)) return dias;
+  d.time.forEach((iso, i) => {
+    const codigo = d.weather_code && d.weather_code[i];
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(iso) || !Number.isFinite(codigo)) return;
+    dias[iso] = {
+      codigo,
+      max: Number.isFinite(d.temperature_2m_max && d.temperature_2m_max[i]) ? Math.round(d.temperature_2m_max[i]) : null,
+      min: Number.isFinite(d.temperature_2m_min && d.temperature_2m_min[i]) ? Math.round(d.temperature_2m_min[i]) : null,
+      chuva: Number.isFinite(d.precipitation_probability_max && d.precipitation_probability_max[i]) ? Math.round(d.precipitation_probability_max[i]) : null
+    };
+  });
+  return dias;
+}
+function lerJsonGuardado(chave){
+  try{ return JSON.parse(lerPreferencia(chave)); }catch(e){ return null; }
+}
+function pedirLocalizacao(){
+  return new Promise((resolve, reject) => {
+    if(!navigator.geolocation){ reject(new Error('sem-suporte')); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: Math.round(pos.coords.latitude * 100) / 100, lon: Math.round(pos.coords.longitude * 100) / 100 }),
+      err => reject(err),
+      { timeout: 10000, maximumAge: 24 * 60 * 60 * 1000 }
+    );
+  });
+}
+async function buscarPrevisao(){
+  if(!mostrarPrevisao || buscandoPrevisao) return;
+  buscandoPrevisao = true;
+  try{
+    // 1) mostra já o que está guardado (se houver), mesmo velho
+    const cache = lerJsonGuardado(CHAVE_CACHE_PREVISAO);
+    if(cache && cache.dias){
+      previsaoPorDia = cache.dias;
+      renderCalendario();
+    }
+    if(cache && Date.now() - cache.quando < PREVISAO_VALIDADE_MS){ mostrarStatusPrevisao(''); return; }
+    // 2) precisa atualizar: onde este aparelho está?
+    let local = lerJsonGuardado(CHAVE_LOCAL_PREVISAO);
+    if(!local || !Number.isFinite(local.lat) || !Number.isFinite(local.lon)){
+      mostrarStatusPrevisao('Pedindo sua localização…');
+      try{
+        local = await pedirLocalizacao();
+        guardarPreferencia(CHAVE_LOCAL_PREVISAO, JSON.stringify(local));
+      }catch(e){
+        mostrarStatusPrevisao('Sem a localização deste aparelho não dá para mostrar a previsão. Permita o acesso à localização para o Rotina no navegador e desligue/ligue a opção.');
+        return;
+      }
+    }
+    // 3) busca a previsão
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=' + local.lat + '&longitude=' + local.lon +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=16';
+    const resp = await fetch(url);
+    if(!resp.ok) throw new Error('http ' + resp.status);
+    const dias = lerRespostaDaPrevisao(await resp.json());
+    if(Object.keys(dias).length === 0) throw new Error('resposta vazia');
+    previsaoPorDia = dias;
+    guardarPreferencia(CHAVE_CACHE_PREVISAO, JSON.stringify({ quando: Date.now(), dias }));
+    mostrarStatusPrevisao('');
+    renderCalendario();
+  }catch(e){
+    console.error('Falha ao buscar a previsão do tempo', e);
+    mostrarStatusPrevisao(Object.keys(previsaoPorDia).length ? 'Sem internet: mostrando a última previsão guardada.' : 'Não consegui buscar a previsão agora (sem internet?).');
+  }finally{
+    buscandoPrevisao = false;
+  }
+}
+
+// A escolha vale para a conta inteira: fica no documento do usuário (campo mostrarFeriados),
+// junto do modo, e todo aparelho logado recebe a mudança sozinho. O localStorage continua
+// só como cópia rápida para o calendário já abrir certo antes do servidor responder.
+let unsubscribeFeriados = null;
+async function salvarConfigCalendario(campos){
+  if(!currentUser) return;
+  try{
+    await setDoc(usuarioDocRef(), campos, { merge: true });
+  }catch(e){
+    console.error('Falha ao salvar a configuração do calendário', e);
+  }
+}
+const salvarFeriados = valor => salvarConfigCalendario({ mostrarFeriados: valor });
+function aplicarPrevisaoRecebida(valor){
+  if(valor === mostrarPrevisao) return;
+  mostrarPrevisao = valor;
+  guardarPreferencia(CHAVE_PREVISAO, valor ? '1' : '0');
+  calPrevisaoCheckEl.checked = valor;
+  if(valor) buscarPrevisao(); else { mostrarStatusPrevisao(''); renderCalendario(); }
+}
+function aplicarFeriadosRecebidos(valor){
+  if(valor === mostrarFeriados) return;
+  mostrarFeriados = valor;
+  guardarPreferencia(CHAVE_FERIADOS, valor ? '1' : '0');
+  calFeriadosCheckEl.checked = valor;
+  renderCalendario();
+}
+function comecarAEscutarFeriados(){
+  pararDeEscutarFeriados();
+  unsubscribeFeriados = onSnapshot(usuarioDocRef(), (snap) => {
+    const data = snap.data();
+    if(data && typeof data.mostrarFeriados === 'boolean'){
+      aplicarFeriadosRecebidos(data.mostrarFeriados);
+    }else if(mostrarFeriados){
+      // a conta ainda não tem a escolha, mas este aparelho já tinha ligado: sobe para a conta
+      salvarFeriados(true);
+    }
+    if(data && typeof data.mostrarPrevisao === 'boolean'){
+      aplicarPrevisaoRecebida(data.mostrarPrevisao);
+    }else if(mostrarPrevisao){
+      salvarConfigCalendario({ mostrarPrevisao: true });
+    }
+  }, (err) => {
+    console.error('Erro ao escutar a opção de feriados', err);
+  });
+}
+function pararDeEscutarFeriados(){
+  if(unsubscribeFeriados){ unsubscribeFeriados(); unsubscribeFeriados = null; }
+}
+const calPrevisaoCheckEl = document.getElementById('calPrevisaoCheck');
+calPrevisaoCheckEl.checked = mostrarPrevisao;
+calPrevisaoCheckEl.addEventListener('change', () => {
+  mostrarPrevisao = calPrevisaoCheckEl.checked;
+  guardarPreferencia(CHAVE_PREVISAO, mostrarPrevisao ? '1' : '0');
+  salvarConfigCalendario({ mostrarPrevisao });   // vale em todos os aparelhos
+  if(mostrarPrevisao) buscarPrevisao(); else mostrarStatusPrevisao('');
+  renderCalendario();
+});
+calFeriadosCheckEl.addEventListener('change', () => {
+  mostrarFeriados = calFeriadosCheckEl.checked;
+  guardarPreferencia(CHAVE_FERIADOS, mostrarFeriados ? '1' : '0');
+  salvarFeriados(mostrarFeriados); // vale em todos os aparelhos
+  renderCalendario();
+});
+
+document.getElementById('calPrevMes').onclick = () => {
+  mesCalendarioAtual = new Date(mesCalendarioAtual.getFullYear(), mesCalendarioAtual.getMonth() - 1, 1);
+  renderCalendario();
+};
+
+document.getElementById('calNextMes').onclick = () => {
+  mesCalendarioAtual = new Date(mesCalendarioAtual.getFullYear(), mesCalendarioAtual.getMonth() + 1, 1);
+  renderCalendario();
+};
+
+document.getElementById('btnEventosGrade').onclick = () => {
+  mostrarEventosNaGrade = !mostrarEventosNaGrade;
+  try{ localStorage.setItem('rotina.grade.mostrarEventos', mostrarEventosNaGrade ? '1' : '0'); }catch(e){ /* só não lembra da escolha */ }
+  renderGrade();
+};
+
+document.getElementById('diaSeletor').addEventListener('click', e => {
+  const btn = e.target.closest('.day-btn');
+  if(!btn) return;
+  diaGradeSelecionado = Number(btn.dataset.day);
+  blocoEditandoId = null; // fecha qualquer edição aberta ao trocar de dia
+  renderGrade();
+});
+
+setInterval(() => {
+  renderTodayLabel();
+  // virou o dia com a Grade aberta: a janela de 7 dias anda (só redesenha se o dia mudou,
+  // para não apagar o que você está digitando num formulário)
+  if(telaAtual === 'grade' && dataDaGradeRenderizada && dataDaGradeRenderizada !== dailyKey(new Date())) renderGrade();
+  // sem confirmação do servidor ainda (ou offline): só redesenha, sem manutenção
+  if(!manutencaoLiberada()){ render(); return; }
+  const tarefasComAtraso = checkMissedTasks();
+  const idsParaApagar = cleanupOnceTasks();
+  const tarefasComPipelineResetado = resetExpiredPipelines();
+  render();
+
+  const mapaTarefasAlteradas = new Map();
+  tarefasComAtraso.forEach(t => mapaTarefasAlteradas.set(t.id, t));
+  tarefasComPipelineResetado.forEach(t => mapaTarefasAlteradas.set(t.id, t));
+  salvarVariasTarefas(Array.from(mapaTarefasAlteradas.values()), idsParaApagar);
+}, 5 * 60 * 1000);
+
+// ---------- Login / Autenticação ----------
+const loginScreen = document.getElementById('loginScreen');
+const appScreen = document.getElementById('appScreen');
+const loginError = document.getElementById('loginError');
+
+function mostrarErro(e){
+  const codigo = e.code || '';
+  const mapa = {
+    'auth/invalid-email': 'E-mail inválido.',
+    'auth/missing-password': 'Digite uma senha.',
+    'auth/weak-password': 'A senha precisa ter pelo menos 6 caracteres.',
+    'auth/email-already-in-use': 'Já existe uma conta com esse e-mail. Tente entrar em vez de criar conta.',
+    'auth/invalid-credential': 'E-mail ou senha incorretos.',
+    'auth/too-many-requests': 'Muitas tentativas. Aguarde um pouco e tente de novo.'
+  };
+  loginError.textContent = mapa[codigo] || ('Erro: ' + (e.message || 'algo deu errado'));
+}
+
+document.getElementById('btnEntrar').onclick = async () => {
+  loginError.textContent = '';
+  const email = document.getElementById('loginEmail').value.trim();
+  const senha = document.getElementById('loginSenha').value;
+  try{
+    await signInWithEmailAndPassword(auth, email, senha);
+  }catch(e){ mostrarErro(e); }
+};
+
+document.getElementById('btnCriarConta').onclick = async () => {
+  loginError.textContent = '';
+  const email = document.getElementById('loginEmail').value.trim();
+  const senha = document.getElementById('loginSenha').value;
+  try{
+    await createUserWithEmailAndPassword(auth, email, senha);
+  }catch(e){ mostrarErro(e); }
+};
+
+document.getElementById('btnSair').onclick = async () => {
+  pararDeEscutar();
+  await signOut(auth);
+};
+
+document.getElementById('btnAtivarNotificacoes').onclick = ativarNotificacoes;
+
+// ---------- Atalhos do ícone do app (manifest.json → "shortcuts") ----------
+// Segurar o ícone do Rotina abre o app com um parâmetro no endereço, por exemplo
+// "?tela=grade" ou "?acao=nova". Aqui a gente lê esse parâmetro e age.
+let abrirNovaTarefaAoEntrar = false;
+let abrirVozAoEntrar = false;
+(function aplicarAtalhoDoEndereco(){
+  const params = new URLSearchParams(location.search);
+  const tela = params.get('tela');
+  const acao = params.get('acao');
+  if(!tela && !acao) return;
+
+  // ?tela=lista | grade | calendario → "clica" no botão da aba correspondente
+  if(tela){
+    const botao = document.querySelector('.tela-btn[data-tela="' + tela + '"]');
+    if(botao) botao.click();
+  }
+  // ?acao=nova → depois do login, leva o cursor pro campo "Nova tarefa..."
+  if(acao === 'nova') abrirNovaTarefaAoEntrar = true;
+  // ?acao=voz → depois do login, abre o painel de criar por voz já ouvindo
+  if(acao === 'voz') abrirVozAoEntrar = true;
+
+  // limpa o endereço pra um refresh (F5) não repetir o atalho
+  history.replaceState(null, '', location.pathname);
+})();
+
+onAuthStateChanged(auth, async (user) => {
+  setCurrentUser(user);
+  // o Firebase já respondeu se há sessão salva: some o "carregando..."
+  document.getElementById('carregandoScreen').classList.add('hidden');
+  if(user){
+    loginScreen.classList.add('hidden');
+    appScreen.classList.remove('hidden');
+    if(abrirVozAoEntrar){
+      abrirVozAoEntrar = false;
+      abrirVoz(true);
+    }
+    if(abrirNovaTarefaAoEntrar){
+      abrirNovaTarefaAoEntrar = false;
+      const campo = document.getElementById('newTaskText');
+      campo.scrollIntoView({ block: 'center' });
+      campo.focus();
+    }
+    document.getElementById('accountEmail').textContent = user.email;
+    renderTodayLabel();
+    try{
+      await migrarDadosAntigosSeNecessario();
+    }catch(e){
+      console.error('Falha ao migrar dados antigos', e);
+    }
+    comecarAEscutarDados({
+      setTasks, setBlocos, setEventos, setCurrentMode,
+      render, renderGrade, renderCalendario,
+      checkMissedTasks, cleanupOnceTasks, resetExpiredPipelines,
+      salvarVariasTarefas
+    });
+    comecarAEscutarFeriados();
+    comecarAEscutarProjetos();
+    buscarPrevisao();
+  } else {
+    appScreen.classList.add('hidden');
+    loginScreen.classList.remove('hidden');
+    pararDeEscutar();
+    pararDeEscutarFeriados();
+    pararDeEscutarProjetos();
+    tasks = [];
+  }
+});
+</script>
+</body>
+</html>

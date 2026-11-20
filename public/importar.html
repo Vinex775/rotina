@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Importar dados no Rotina</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:560px;margin:2rem auto;padding:0 1rem;background:#F5F2EA;color:#222;line-height:1.5}
+  button{font-size:1rem;padding:.6rem 1rem;border-radius:8px;border:1px solid #888;background:#fff;cursor:pointer}
+  #resultado{margin-top:1rem;font-weight:bold}
+  code{background:#eee;padding:0 .3em;border-radius:4px}
+</style>
+</head>
+<body>
+<h1>Importar dados do Firebase</h1>
+<p>Escolha o arquivo <code>rotina-export.json</code> gerado pelo script de exportação.
+Antes, entre na sua conta no <a href="./">Rotina</a> neste mesmo endereço.</p>
+<p>Importar é seguro de repetir: cada tarefa/bloco/evento usa o mesmo id de antes, então
+só sobrescreve com o mesmo conteúdo, nunca duplica.</p>
+<input type="file" id="arquivo" accept="application/json,.json"><br><br>
+<button id="enviar">Importar</button>
+<div id="resultado"></div>
+<script>
+document.getElementById('enviar').onclick = async () => {
+  const res = document.getElementById('resultado');
+  const f = document.getElementById('arquivo').files[0];
+  if(!f){ res.textContent = 'Escolha o arquivo primeiro.'; return; }
+  let dados;
+  try{ dados = JSON.parse(await f.text()); }catch(e){ res.textContent = 'Esse arquivo não é um JSON válido.'; return; }
+  res.textContent = 'Importando...';
+  try{
+    const r = await fetch('api/importar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(dados) });
+    if(r.status === 401){ res.textContent = 'Você não está logado. Abra o Rotina, entre na conta e volte aqui.'; return; }
+    const j = await r.json();
+    res.textContent = r.ok ? ('Pronto! ' + j.importados + ' itens importados. Abra o Rotina.') : ('Erro: ' + (j.mensagem || r.status));
+  }catch(e){ res.textContent = 'Sem conexão com o servidor.'; }
+};
+</script>
+</body>
+</html>

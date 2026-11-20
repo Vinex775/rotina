@@ -1,0 +1,25 @@
+# Serviço do systemd: mantém o Rotina ligado, inicia junto com o computador
+# e reinicia sozinho se der algum erro.
+# Os trechos USUARIO e CAMINHO são trocados pelo comando do INSTALAR.md.
+[Unit]
+Description=Rotina (servidor caseiro)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=USUARIO
+WorkingDirectory=CAMINHO
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOST=127.0.0.1
+Environment=TZ=America/Sao_Paulo
+# O acesso será por HTTPS (via Tailscale), então o cookie de login pode ser "seguro"
+Environment=COOKIE_SECURE=1
+# Descomente para permitir criar mais contas (por padrão só a primeira conta é aceita)
+#Environment=ALLOW_SIGNUP=1
+
+[Install]
+WantedBy=multi-user.target
