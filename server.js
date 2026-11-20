@@ -98,6 +98,7 @@ const q = {
                          ON CONFLICT (endpoint) DO UPDATE SET uid = excluded.uid, json = excluded.json`),
   pushsDoUsuario: db.prepare('SELECT endpoint, json FROM push_inscricoes WHERE uid = ?'),
   apagaPush: db.prepare('DELETE FROM push_inscricoes WHERE endpoint = ?'),
+  liberaAviso: db.prepare('DELETE FROM avisos_enviados WHERE uid = ? AND chave = ?'),
   todosUsuarios: db.prepare('SELECT id FROM usuarios'),
   avisoJaEnviado: db.prepare('SELECT 1 FROM avisos_enviados WHERE uid = ? AND chave = ?'),
   marcaAviso: db.prepare('INSERT OR IGNORE INTO avisos_enviados (uid, chave, enviado) VALUES (?, ?, ?)'),
@@ -356,15 +357,21 @@ app.post('/api/importar', autenticar, express.json({ limit: '30mb' }), (req, res
 // ---- notificações push
 app.get('/api/push/chave', autenticar, (req, res) => res.json({ chave: VAPID.publicKey }));
 
+// Resultado do envio a UM aparelho:
+//   'ok'      — o serviço de push aceitou o aviso;
+//   'removida' — 404/410: o aparelho cancelou ou a inscrição expirou (apagamos; não adianta tentar de novo);
+//   'falha'   — qualquer outro erro (sem internet, serviço de push fora do ar...): pode dar certo depois.
 async function enviarPush(inscricao, carga){
   try{
     await webpush.sendNotification(JSON.parse(inscricao.json), JSON.stringify(carga), { TTL: 3600, urgency: 'high' });
-    return true;
+    return 'ok';
   }catch(e){
-    // 404/410: o aparelho cancelou ou a inscrição expirou — não adianta guardar
-    if(e.statusCode === 404 || e.statusCode === 410) q.apagaPush.run(inscricao.endpoint);
-    else console.error('[push] falha ao enviar:', e.statusCode || '', e.body || e.message);
-    return false;
+    if(e.statusCode === 404 || e.statusCode === 410){
+      q.apagaPush.run(inscricao.endpoint);
+      return 'removida';
+    }
+    console.error('[push] falha ao enviar:', e.statusCode || '', e.body || e.message);
+    return 'falha';
   }
 }
 
@@ -372,8 +379,8 @@ app.post('/api/push/inscrever', autenticar, json, async (req, res) => {
   const s = req.body && req.body.inscricao;
   if(!s || typeof s.endpoint !== 'string' || !s.keys || !s.keys.p256dh || !s.keys.auth) return res.status(400).json({ mensagem: 'inscrição inválida' });
   q.gravaPush.run(s.endpoint, req.usuario.id, JSON.stringify(s), Date.now());
-  const ok = await enviarPush({ endpoint: s.endpoint, json: JSON.stringify(s) }, { title: 'Rotina', body: 'Notificações ativadas neste aparelho.', tag: 'rotina-teste' });
-  res.json({ ok: true, teste: ok });
+  const resultado = await enviarPush({ endpoint: s.endpoint, json: JSON.stringify(s) }, { title: 'Rotina', body: 'Notificações ativadas neste aparelho.', tag: 'rotina-teste' });
+  res.json({ ok: true, teste: resultado === 'ok' });
 });
 
 // ---- site (arquivos da pasta public/)
@@ -383,6 +390,12 @@ app.use(express.static(path.join(__dirname, 'public'), {
 app.use('/api', (req, res) => res.status(404).json({ mensagem: 'não encontrado' }));
 
 // ---------------------------------------------------------------- avisos agendados
+// Quantas vezes (uma por checagem, a cada 30 s) um aviso que falhou em TODOS os aparelhos
+// é tentado de novo, antes de desistir. Dentro da janela de validade do aviso (15 min nos
+// blocos, 1 h nos de "N dias antes"), então não chega uma notificação velha demais.
+const MAX_TENTATIVAS_AVISO = 10;
+const tentativasDoAviso = new Map(); // 'uid|chave' -> quantas vezes falhou em todos os aparelhos
+
 async function rodarAvisos(agora = new Date()){
   for(const { id: uid } of q.todosUsuarios.all()){
     const pushs = q.pushsDoUsuario.all(uid);
@@ -390,14 +403,30 @@ async function rodarAvisos(agora = new Date()){
     const blocos = q.docsDaColecao.all(uid, 'blocos').map(l => JSON.parse(l.data));
     const eventos = q.docsDaColecao.all(uid, 'eventos').map(l => JSON.parse(l.data));
     for(const aviso of calcularAvisos(agora, blocos, eventos)){
-      // marca ANTES de enviar: melhor perder um aviso por falha do que mandar duplicado
+      // Marca ANTES de enviar: duas checagens seguidas nunca mandam o mesmo aviso duas vezes.
       if(q.avisoJaEnviado.get(uid, aviso.chave)) continue;
       q.marcaAviso.run(uid, aviso.chave, Date.now());
-      await Promise.all(pushs.map(p => enviarPush(p, { title: aviso.titulo, body: aviso.corpo, tag: aviso.tag })));
+      const resultados = await Promise.all(pushs.map(p => enviarPush(p, { title: aviso.titulo, body: aviso.corpo, tag: aviso.tag })));
+      const id = uid + '|' + aviso.chave;
+      if(!resultados.includes('ok') && resultados.includes('falha')){
+        // NENHUM aparelho recebeu e houve falha que pode passar (ex.: o servidor ficou sem
+        // internet nesse minuto): tira a marca para a próxima checagem tentar de novo, até
+        // MAX_TENTATIVAS_AVISO vezes. Se pelo menos um aparelho recebeu, a marca fica (não duplica).
+        const n = (tentativasDoAviso.get(id) || 0) + 1;
+        if(n < MAX_TENTATIVAS_AVISO){
+          tentativasDoAviso.set(id, n);
+          q.liberaAviso.run(uid, aviso.chave);
+          console.log('[aviso] não saiu (tentativa ' + n + '), vou tentar de novo:', aviso.titulo + ' — ' + aviso.corpo);
+          continue;
+        }
+        console.error('[aviso] desisti depois de ' + n + ' tentativas:', aviso.titulo + ' — ' + aviso.corpo);
+      }
+      tentativasDoAviso.delete(id);
       console.log('[aviso]', aviso.titulo + ' — ' + aviso.corpo);
     }
   }
   q.limpaAvisos.run(Date.now() - 7 * 24 * 3600 * 1000);
+  if(tentativasDoAviso.size > 500) tentativasDoAviso.clear(); // só um limite de segurança
   q.limpaSessoes.run(Date.now());
 }
 
@@ -432,4 +461,4 @@ if(require.main === module){
   process.on('SIGINT', parar);
 }
 
-module.exports = { app, db, rodarAvisos, aplicarOps };
+module.exports = { app, db, rodarAvisos, aplicarOps, MAX_TENTATIVAS_AVISO };
